@@ -1,6 +1,6 @@
 mod fetch;
-mod tree_ui;
 mod trees;
+mod ui;
 
 use std::sync::{Arc, Mutex};
 
@@ -11,7 +11,8 @@ use tokio::{
     runtime::Runtime,
     sync::mpsc::{unbounded_channel, UnboundedReceiver},
 };
-use tree_ui::{draw_subtrees, SnarlSubtreeNode, Viewer};
+
+use crate::ui::trees::{draw_subtrees, SnarlSubtreeNode, Viewer};
 
 type Key = Vec<u8>;
 type Path = Vec<Vec<u8>>;

@@ -8,9 +8,10 @@ use egui_snarl::{
     InPinId, OutPinId, Snarl,
 };
 
+use super::commons::{binary_label, bytes_by_display_variant, DisplayVariant};
 use crate::{trees, Key};
 
-const X_MARGIN: f32 = 300.0;
+const X_MARGIN: f32 = 500.0;
 const Y_MARGIN_MIN: f32 = 200.0;
 const Y_MARGIN_PER_PIN: f32 = 20.0;
 
@@ -18,6 +19,7 @@ const Y_MARGIN_PER_PIN: f32 = 20.0;
 pub(crate) struct SnarlSubtreeNode {
     key: Key,
     children: Vec<Key>,
+    key_display_variant: DisplayVariant,
 }
 
 /// Draw an acyclic graph of subtrees (meaning only upper level trees are nodes
@@ -54,7 +56,7 @@ pub(crate) fn draw_subtrees(snarl: &mut Snarl<SnarlSubtreeNode>, tree: &trees::T
 
         let level_margin = max_height / (tree.levels_count[level] + 1) as f32;
 
-        let node_id = snarl.insert_node_collapsed(
+        let node_id = snarl.insert_node(
             (
                 X_MARGIN * level as f32,
                 level_margin * (levels_counters[level] + 1) as f32,
@@ -63,6 +65,7 @@ pub(crate) fn draw_subtrees(snarl: &mut Snarl<SnarlSubtreeNode>, tree: &trees::T
             SnarlSubtreeNode {
                 key: subtree.key().clone(),
                 children: children_keys,
+                key_display_variant: DisplayVariant::String,
             },
         );
         levels_counters[level] += 1;
@@ -91,7 +94,22 @@ pub(crate) struct Viewer;
 
 impl SnarlViewer<SnarlSubtreeNode> for Viewer {
     fn title(&mut self, node: &SnarlSubtreeNode) -> String {
-        String::from_utf8_lossy(&node.key).to_string()
+        todo!()
+        // String::from_utf8_lossy(&node.key).to_string()
+    }
+
+    fn show_header(
+        &mut self,
+        node: egui_snarl::NodeId,
+        inputs: &[egui_snarl::InPin],
+        outputs: &[egui_snarl::OutPin],
+        ui: &mut egui::Ui,
+        scale: f32,
+        snarl: &mut Snarl<SnarlSubtreeNode>,
+    ) {
+        let node = &mut snarl[node];
+        ui.set_min_width(X_MARGIN / 2.0 * scale);
+        binary_label(ui, &node.key, &mut node.key_display_variant);
     }
 
     fn outputs(&mut self, node: &SnarlSubtreeNode) -> usize {
@@ -120,7 +138,9 @@ impl SnarlViewer<SnarlSubtreeNode> for Viewer {
         snarl: &mut Snarl<SnarlSubtreeNode>,
     ) -> egui_snarl::ui::PinInfo {
         pin.remotes.get(0).into_iter().for_each(|remote| {
-            ui.label(String::from_utf8_lossy(&snarl[remote.node].key));
+            let node = &snarl[remote.node];
+            let text = bytes_by_display_variant(&node.key, &node.key_display_variant);
+            ui.label(text);
         });
         PinInfo::default()
     }
