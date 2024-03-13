@@ -12,7 +12,7 @@ use tokio::{
     sync::mpsc::{unbounded_channel, UnboundedReceiver},
 };
 
-use crate::ui::trees::{draw_subtrees, SnarlSubtreeNode, Viewer};
+use crate::ui::trees::{draw_subtrees, SnarlSubtreeNode, SubtreeNodeViewer};
 
 type Key = Vec<u8>;
 type Path = Vec<Vec<u8>>;
@@ -79,12 +79,12 @@ impl eframe::App for Application {
         egui::CentralPanel::default().show(ctx, |ui| {
             let mut lock = self.tree.lock().unwrap();
             if lock.updated {
-                draw_subtrees(&mut self.snarl, &lock);
+                draw_subtrees(ctx.clone(), &mut self.snarl, &lock);
                 lock.updated = false;
             }
 
             self.snarl.show(
-                &mut Viewer,
+                &mut SubtreeNodeViewer,
                 &SnarlStyle::default(),
                 egui::Id::new("snarl"),
                 ui,

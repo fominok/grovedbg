@@ -7,7 +7,7 @@ use slab::Slab;
 use crate::{Key, Path};
 
 pub(crate) type SubtreeNodeId = usize;
-type InnerTreeNodeId = usize;
+pub(crate) type InnerTreeNodeId = usize;
 
 /// Struct that represents a highlevel tree with GroveDB's subtrees as nodes.
 #[derive(Debug)]
@@ -30,14 +30,14 @@ pub(crate) struct Tree {
 pub(crate) struct SubtreeNode {
     key: Key,
     children: BTreeMap<Key, SubtreeNodeId>,
-    inner_tree: InnerTree,
+    pub(crate) inner_tree: InnerTree,
     snarl_id: Option<egui_snarl::NodeId>,
 }
 
-#[derive(Debug, Default)]
-struct InnerTree {
-    root_node_key: Option<Key>,
-    nodes: BTreeMap<Key, InnerTreeNode>,
+#[derive(Debug, Default, Clone)]
+pub(crate) struct InnerTree {
+    pub(crate) root_node_key: Option<Key>,
+    pub(crate) nodes: BTreeMap<Key, InnerTreeNode>,
 }
 
 #[derive(Debug)]
@@ -46,14 +46,14 @@ enum Side {
     Right,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(crate) struct InnerTreeNode {
     pub(crate) value: InnerTreeNodeValue,
     pub(crate) left: Option<Key>,
     pub(crate) right: Option<Key>,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub(crate) enum InnerTreeNodeValue {
     Scalar(Vec<u8>),
     Subtree(Option<Key>),
