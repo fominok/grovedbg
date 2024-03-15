@@ -1,14 +1,8 @@
 //! Module for trees representation
 
-use std::{
-    cmp,
-    collections::{btree_map::Entry, BTreeMap, BTreeSet},
-};
+use std::collections::{btree_map::Entry, BTreeMap, BTreeSet};
 
 use crate::{Key, Path};
-
-pub(crate) type SubtreeNodeId = usize;
-pub(crate) type InnerTreeNodeId = usize;
 
 /// Struct that represents a highlevel tree with GroveDB's subtrees as nodes.
 #[derive(Debug)]
@@ -31,18 +25,13 @@ pub(crate) struct SubtreeNode {
     pub parent_path: Option<Path>,
     pub children: BTreeSet<Key>,
     pub inner_tree: InnerTree,
+    pub referred_keys: BTreeSet<Key>,
 }
 
 #[derive(Debug, Default, Clone)]
 pub(crate) struct InnerTree {
     pub(crate) root_node_key: Option<Key>,
     pub(crate) nodes: BTreeMap<Key, InnerTreeNode>,
-}
-
-#[derive(Debug)]
-enum Side {
-    Left,
-    Right,
 }
 
 #[derive(Debug, Clone)]
@@ -56,6 +45,7 @@ pub(crate) struct InnerTreeNode {
 pub(crate) enum InnerTreeNodeValue {
     Scalar(Vec<u8>),
     Subtree(Option<Key>),
+    Reference(Path, Key),
 }
 
 impl Tree {
@@ -107,6 +97,16 @@ impl Tree {
                 }
                 self.levels_count[child_level] += 1;
             }
+        }
+
+        // In case of adding a reference the referenced subtree should be aware of it to
+        // draw a pin after
+        if let InnerTreeNodeValue::Reference(ref_path, key) = &node.value {
+            self.subtrees
+                .get_mut(ref_path)
+                .expect("inserted above")
+                .referred_keys
+                .insert(key.clone());
         }
 
         self.subtrees

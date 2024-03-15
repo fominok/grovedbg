@@ -1,7 +1,8 @@
 use std::collections::VecDeque;
 
 use grovedbg_grpc::{
-    element::Element, grove_dbg_client::GroveDbgClient, FetchRequest, Item, Subtree,
+    element::Element, grove_dbg_client::GroveDbgClient, AbsolutePathReference, FetchRequest, Item,
+    Subtree,
 };
 
 use crate::{trees, Key, Path};
@@ -46,6 +47,15 @@ pub(crate) async fn full_fetch(
                 }
 
                 trees::InnerTreeNodeValue::Subtree(root_key)
+            }
+            Some(grovedbg_grpc::Element {
+                element: Some(Element::AbsolutePathReference(AbsolutePathReference { mut path })),
+            }) => {
+                if let Some(key) = path.pop() {
+                    trees::InnerTreeNodeValue::Reference(path, key)
+                } else {
+                    continue;
+                }
             }
             _ => {
                 continue;

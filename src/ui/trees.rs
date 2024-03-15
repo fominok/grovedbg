@@ -11,7 +11,7 @@ use egui_snarl::{
 use super::commons::{binary_label, bytes_by_display_variant, DisplayVariant};
 use crate::{
     trees::{self, InnerTree, InnerTreeNodeValue},
-    Key,
+    Key, Path,
 };
 
 const X_MARGIN: f32 = 500.0;
@@ -184,10 +184,12 @@ impl SnarlViewer<SnarlInnerTreeNode> for InnerTreeNodeViewer {
 pub(crate) struct SnarlSubtreeNode {
     key: Key,
     children: BTreeSet<Key>,
+    references: Vec<(Path, Key, DisplayVariant)>,
     key_display_variant: DisplayVariant,
     context: egui::Context,
     showing_inner_tree: bool,
     inner_tree: InnerTree,
+    refererred_keys: BTreeMap<Key, (usize, DisplayVariant)>,
 }
 
 /// Draw an acyclic graph of subtrees (meaning only upper level trees are nodes
@@ -216,6 +218,9 @@ pub(crate) fn draw_subtrees(
     // achieve some symmetry and use space evenly
     let max_height = tree.max_level_count() as f32 * y_margin;
 
+    // Referenced subtrees input pins index structure
+    let mut referenced_pins: BTreeMap<(Path, Key), (egui_snarl::NodeId, usize)> = BTreeMap::new();
+
     while let Some((parent_snarl_id, level, subtree)) = deque.pop_front() {
         let level_margin = max_height / (tree.levels_count[level] + 1) as f32;
 
@@ -235,8 +240,35 @@ pub(crate) fn draw_subtrees(
                 children: subtree.children.clone(),
                 key_display_variant: DisplayVariant::String,
                 showing_inner_tree: false,
+                refererred_keys: subtree
+                    .referred_keys
+                    .iter()
+                    .enumerate()
+                    .map(|(i, key)| (key.clone(), (i + 1, DisplayVariant::String)))
+                    .collect(),
+                references: subtree
+                    .inner_tree
+                    .nodes
+                    .iter()
+                    .filter_map(|(key, item)| match &item.value {
+                        InnerTreeNodeValue::Reference(path, _) => {
+                            Some((path.clone(), key.clone(), DisplayVariant::String))
+                        }
+                        _ => None,
+                    })
+                    .collect(),
             },
         );
+
+        // Populate references index with input pins of added subtree node
+        for (key, (pin_id, _)) in &snarl[node_id].refererred_keys {
+            let mut path = subtree.parent_path.clone().unwrap_or_default();
+            if let Some(k) = &subtree.key {
+                path.push(k.clone());
+            }
+            referenced_pins.insert((path, key.clone()), (node_id, *pin_id));
+        }
+
         levels_counters[level] += 1;
         if let Some(parent_id) = parent_snarl_id {
             let parent_out_pin_idx = child_counters.get(&parent_id).copied().unwrap_or_default();
@@ -260,6 +292,25 @@ pub(crate) fn draw_subtrees(
             }
             path.push(child_key.clone());
             deque.push_back((Some(node_id), level + 1, &tree.subtrees[&path]));
+        });
+
+        let mut ref_out_counter = snarl[node_id].children.len();
+        subtree.inner_tree.nodes.values().for_each(|node| {
+            if let InnerTreeNodeValue::Reference(path, key) = &node.value {
+                if let Some((node, input)) = referenced_pins.get(&(path.clone(), key.clone())) {
+                    snarl.connect(
+                        OutPinId {
+                            node: node_id,
+                            output: ref_out_counter,
+                        },
+                        InPinId {
+                            node: *node,
+                            input: *input,
+                        },
+                    );
+                    ref_out_counter += 1;
+                }
+            }
         });
     }
 }
@@ -302,36 +353,55 @@ impl SnarlViewer<SnarlSubtreeNode> for SubtreeNodeViewer {
     }
 
     fn outputs(&mut self, node: &SnarlSubtreeNode) -> usize {
-        node.children.len()
+        node.children.len() + node.references.len()
     }
 
-    fn inputs(&mut self, _node: &SnarlSubtreeNode) -> usize {
-        1
+    fn inputs(&mut self, node: &SnarlSubtreeNode) -> usize {
+        1 + node.refererred_keys.len()
     }
 
     fn show_input(
         &mut self,
-        _pin: &egui_snarl::InPin,
-        _ui: &mut egui::Ui,
+        pin: &egui_snarl::InPin,
+        ui: &mut egui::Ui,
         _scale: f32,
-        _snarl: &mut Snarl<SnarlSubtreeNode>,
+        snarl: &mut Snarl<SnarlSubtreeNode>,
     ) -> PinInfo {
-        PinInfo::default()
+        if pin.id.input > 0 {
+            let referred_key = snarl[pin.id.node]
+                .refererred_keys
+                .iter_mut()
+                .find(|(_, (idx, _))| *idx == pin.id.input);
+            if let Some((key, (_, display_variant))) = referred_key {
+                binary_label(ui, &key, display_variant);
+            }
+            PinInfo::default().with_fill(egui::Color32::GREEN)
+        } else {
+            PinInfo::default()
+        }
     }
 
     fn show_output(
         &mut self,
         pin: &egui_snarl::OutPin,
         ui: &mut egui::Ui,
-        _scale: f32,
+        scale: f32,
         snarl: &mut Snarl<SnarlSubtreeNode>,
     ) -> egui_snarl::ui::PinInfo {
-        pin.remotes.get(0).into_iter().for_each(|remote| {
-            let node = &snarl[remote.node];
-            let text = bytes_by_display_variant(&node.key, &node.key_display_variant);
-            ui.label(text);
-        });
-        PinInfo::default()
+        let node = &mut snarl[pin.id.node];
+        if pin.id.output < node.children.len() {
+            pin.remotes.get(0).into_iter().for_each(|remote| {
+                let node = &snarl[remote.node];
+                let text = bytes_by_display_variant(&node.key, &node.key_display_variant);
+                ui.label(text);
+            });
+            PinInfo::default()
+        } else {
+            let reference_key = &mut node.references[pin.id.output - node.children.len()];
+            ui.set_max_size(egui::vec2(150.0 * scale, 20.0));
+            binary_label(ui, &reference_key.1, &mut reference_key.2);
+            PinInfo::default().with_fill(egui::Color32::GREEN)
+        }
     }
 
     fn has_body(&mut self, _node: &SnarlSubtreeNode) -> bool {
