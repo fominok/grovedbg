@@ -1,6 +1,6 @@
 //! Grove structure representation with egui-snarl
 
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use eframe::egui;
 use egui_snarl::{
@@ -183,7 +183,7 @@ impl SnarlViewer<SnarlInnerTreeNode> for InnerTreeNodeViewer {
 #[derive(Debug)]
 pub(crate) struct SnarlSubtreeNode {
     key: Key,
-    children: Vec<Key>,
+    children: BTreeSet<Key>,
     key_display_variant: DisplayVariant,
     context: egui::Context,
     showing_inner_tree: bool,
@@ -197,9 +197,9 @@ pub(crate) fn draw_subtrees(
     snarl: &mut Snarl<SnarlSubtreeNode>,
     tree: &trees::Tree,
 ) {
-    let mut deque: VecDeque<(Option<egui_snarl::NodeId>, usize, trees::SubtreeNodeId)> =
+    let mut deque: VecDeque<(Option<egui_snarl::NodeId>, usize, &trees::SubtreeNode)> =
         VecDeque::new();
-    deque.push_back((None, 0, tree.root_subtree_id()));
+    deque.push_back((None, 0, &tree.subtrees[[].as_ref()]));
 
     // Keeps track of how many subtree nodes were placed at the same level to
     // compute poisiton accordingly
@@ -216,16 +216,7 @@ pub(crate) fn draw_subtrees(
     // achieve some symmetry and use space evenly
     let max_height = tree.max_level_count() as f32 * y_margin;
 
-    while let Some((parent_ui_node_id, level, subtree_id)) = deque.pop_front() {
-        let Some(subtree) = tree.subtree_by_id(subtree_id) else {
-            continue;
-        };
-
-        let (children_ids, children_keys): (Vec<trees::SubtreeNodeId>, Vec<Key>) = tree
-            .iter_subtree_children(subtree_id)
-            .map(|(child_id, child_node)| (child_id, child_node.key().clone()))
-            .unzip();
-
+    while let Some((parent_snarl_id, level, subtree)) = deque.pop_front() {
         let level_margin = max_height / (tree.levels_count[level] + 1) as f32;
 
         let node_id = snarl.insert_node(
@@ -237,14 +228,17 @@ pub(crate) fn draw_subtrees(
             SnarlSubtreeNode {
                 inner_tree: subtree.inner_tree.clone(),
                 context: context.clone(),
-                key: subtree.key().clone(),
-                children: children_keys,
+                key: subtree
+                    .key
+                    .clone()
+                    .unwrap_or_else(|| "ROOT".to_owned().into()),
+                children: subtree.children.clone(),
                 key_display_variant: DisplayVariant::String,
                 showing_inner_tree: false,
             },
         );
         levels_counters[level] += 1;
-        if let Some(parent_id) = parent_ui_node_id {
+        if let Some(parent_id) = parent_snarl_id {
             let parent_out_pin_idx = child_counters.get(&parent_id).copied().unwrap_or_default();
             child_counters.insert(parent_id, parent_out_pin_idx + 1);
             snarl.connect(
@@ -259,8 +253,13 @@ pub(crate) fn draw_subtrees(
             );
         }
 
-        children_ids.into_iter().for_each(|child_id| {
-            deque.push_back((Some(node_id), level + 1, child_id));
+        subtree.children.iter().for_each(|child_key| {
+            let mut path = subtree.parent_path.clone().unwrap_or_default();
+            if let Some(key) = &subtree.key {
+                path.push(key.clone());
+            }
+            path.push(child_key.clone());
+            deque.push_back((Some(node_id), level + 1, &tree.subtrees[&path]));
         });
     }
 }

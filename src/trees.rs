@@ -1,8 +1,9 @@
 //! Module for trees representation
 
-use std::{cmp, collections::BTreeMap};
-
-use slab::Slab;
+use std::{
+    cmp,
+    collections::{btree_map::Entry, BTreeMap, BTreeSet},
+};
 
 use crate::{Key, Path};
 
@@ -12,10 +13,8 @@ pub(crate) type InnerTreeNodeId = usize;
 /// Struct that represents a highlevel tree with GroveDB's subtrees as nodes.
 #[derive(Debug)]
 pub(crate) struct Tree {
-    /// Slab id of the root subtree node
-    root_node_id: SubtreeNodeId,
     /// Data structure to hold all subtrees
-    nodes: Slab<SubtreeNode>,
+    pub subtrees: BTreeMap<Path, SubtreeNode>,
     /// `Level: count` mapping to store how many subtrees are on each level used
     /// for better visualization of tree structures
     pub levels_count: Vec<usize>,
@@ -28,10 +27,10 @@ pub(crate) struct Tree {
 
 #[derive(Debug, Default)]
 pub(crate) struct SubtreeNode {
-    key: Key,
-    children: BTreeMap<Key, SubtreeNodeId>,
-    pub(crate) inner_tree: InnerTree,
-    snarl_id: Option<egui_snarl::NodeId>,
+    pub key: Option<Key>,
+    pub parent_path: Option<Path>,
+    pub children: BTreeSet<Key>,
+    pub inner_tree: InnerTree,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -68,16 +67,15 @@ impl Tree {
                 root_node_key: Some(root_subtree_inner_tree_key),
                 ..Default::default()
             },
-            key: b"ROOT".to_vec(),
             ..Default::default()
         };
-        let mut nodes = Slab::default();
-        let root_node_id = nodes.insert(root_node);
+
+        let mut subtrees = BTreeMap::new();
+        subtrees.insert(vec![], root_node);
 
         Tree {
             levels_count: vec![1],
-            root_node_id,
-            nodes,
+            subtrees,
             updated: true,
             max_children_count: 1,
         }
@@ -89,14 +87,20 @@ impl Tree {
 
     pub fn insert(&mut self, path: Path, key: Key, node: InnerTreeNode) {
         let child_level = path.len() + 1;
-        let subtree_id = self.get_or_create_subtree_recursive(path);
+        self.get_or_create_subtree_recursive(path.clone());
 
         // In case of adding a child subtree root we need to create a `SubtreeNode` for
         // it.
         if let InnerTreeNodeValue::Subtree(root_key) = &node.value {
-            let (created, child_subtree_id) =
-                self.get_or_create_child_subtree(subtree_id, key.clone());
-            self.nodes[child_subtree_id].inner_tree.root_node_key = root_key.clone();
+            let mut child_path = path.clone();
+            child_path.push(key.clone());
+            let (created, child_subtree) = self.get_or_create_child_subtree(child_path);
+            child_subtree.inner_tree.root_node_key = root_key.clone();
+            self.subtrees
+                .get_mut(&path)
+                .expect("inserted above")
+                .children
+                .insert(key.clone());
             if created {
                 if child_level >= self.levels_count.len() {
                     self.levels_count.resize(child_level + 1, 0);
@@ -105,95 +109,52 @@ impl Tree {
             }
         }
 
-        self.nodes[subtree_id].inner_tree.nodes.insert(key, node);
+        self.subtrees
+            .get_mut(&path)
+            .expect("inserted above")
+            .inner_tree
+            .nodes
+            .insert(key, node);
     }
 
-    pub fn root_subtree_id(&self) -> SubtreeNodeId {
-        self.root_node_id
-    }
-
-    pub fn root_subtree(&self) -> &SubtreeNode {
-        &self.nodes[self.root_node_id]
-    }
-
-    pub fn subtree_by_id(&self, id: SubtreeNodeId) -> Option<&SubtreeNode> {
-        self.nodes.get(id)
-    }
-
-    fn get_or_create_child_subtree(
-        &mut self,
-        node_id: SubtreeNodeId,
-        key: Key,
-    ) -> (bool, SubtreeNodeId) {
-        if self.nodes[node_id].children.contains_key(&key) {
-            (false, self.nodes[node_id].children[&key])
-        } else {
-            let subtree_id = self.nodes.insert(SubtreeNode {
-                key: key.clone(),
-                ..Default::default()
-            });
-            self.nodes[node_id].children.insert(key, subtree_id);
-            self.max_children_count =
-                cmp::max(self.max_children_count, self.nodes[node_id].children.len());
-            (true, subtree_id)
+    fn get_or_create_child_subtree(&mut self, subtree_path: Path) -> (bool, &mut SubtreeNode) {
+        match self.subtrees.entry(subtree_path.clone()) {
+            Entry::Vacant(entry) => {
+                let mut parent_path = subtree_path;
+                let key = parent_path.pop();
+                let subtree = SubtreeNode {
+                    key,
+                    parent_path: Some(parent_path),
+                    ..Default::default()
+                };
+                (true, entry.insert(subtree))
+            }
+            Entry::Occupied(subtree) => (false, subtree.into_mut()),
         }
     }
 
-    fn get_or_create_subtree_recursive(&mut self, path: Path) -> SubtreeNodeId {
+    fn get_or_create_subtree_recursive(&mut self, path: Path) {
         let mut current_level = 0;
+        let mut current_path = vec![];
         let mut path_iter = path.into_iter();
 
-        let mut current_node_id = self.root_node_id;
-
-        while let Some(path_segment) = path_iter.next() {
-            current_level += 1;
-            let created;
-            (created, current_node_id) =
-                self.get_or_create_child_subtree(current_node_id, path_segment);
+        let mut working = true;
+        while working {
+            let (created, subtree) = self.get_or_create_child_subtree(current_path.clone());
+            if let Some(path_segment) = path_iter.next() {
+                subtree.children.insert(path_segment.clone());
+                current_path.push(path_segment);
+            } else {
+                working = false;
+            }
             if created {
-                if current_level > self.levels_count.len() {
+                if current_level >= self.levels_count.len() {
                     self.levels_count.resize(current_level + 1, 0);
                 }
                 self.levels_count[current_level] += 1;
             }
+            current_level += 1;
         }
-
-        current_node_id
-    }
-
-    pub fn iter_subtree_children(
-        &self,
-        id: SubtreeNodeId,
-    ) -> impl Iterator<Item = (SubtreeNodeId, &SubtreeNode)> {
-        self.nodes
-            .get(id)
-            .into_iter()
-            .map(|node| node.children.values().map(|id| (*id, &self.nodes[*id])))
-            .flatten()
-    }
-
-    pub fn iter_subtree_children_ids<'a>(
-        &'a self,
-        id: SubtreeNodeId,
-    ) -> impl Iterator<Item = SubtreeNodeId> + 'a {
-        self.nodes
-            .get(id)
-            .into_iter()
-            .map(|node| node.children.values().copied())
-            .flatten()
-    }
-
-    pub fn get_inner_tree_root(&self, id: SubtreeNodeId) -> Option<&InnerTreeNode> {
-        self.nodes
-            .get(id)
-            .map(|node| {
-                let root_node_key = &node.inner_tree.root_node_key;
-                root_node_key
-                    .as_ref()
-                    .map(|key| node.inner_tree.nodes.get(key))
-                    .flatten()
-            })
-            .flatten()
     }
 }
 
@@ -210,16 +171,6 @@ impl InnerTreeNode {
             .as_ref()
             .map(|right| inner_tree.nodes.get(right))
             .flatten()
-    }
-}
-
-impl SubtreeNode {
-    pub fn key(&self) -> &Key {
-        &self.key
-    }
-
-    pub fn inner_tree(&self) -> &InnerTree {
-        &self.inner_tree
     }
 }
 
@@ -241,21 +192,34 @@ mod tests {
         let mut tree = Tree::new(b"0".to_vec());
 
         tree.get_or_create_subtree_recursive(vec![b"00".to_vec()]);
-
-        let deep_subtree_id = tree.get_or_create_subtree_recursive(vec![
+        tree.get_or_create_subtree_recursive(vec![
             b"0".to_vec(),
             b"1".to_vec(),
             b"2".to_vec(),
             b"3".to_vec(),
             b"4".to_vec(),
         ]);
-        let deep_subtree = &tree.nodes[deep_subtree_id];
+        let deep_subtree = &tree
+            .subtrees
+            .get(
+                [
+                    b"0".to_vec(),
+                    b"1".to_vec(),
+                    b"2".to_vec(),
+                    b"3".to_vec(),
+                    b"4".to_vec(),
+                ]
+                .as_ref(),
+            )
+            .unwrap();
 
-        assert_eq!(deep_subtree.key, b"4".to_vec());
-        assert_eq!(tree.root_subtree().key, b"".to_vec());
+        assert_eq!(deep_subtree.key, Some(b"4".to_vec()));
+        assert_eq!(tree.subtrees[[].as_ref()].key, None);
         assert_eq!(
-            tree.iter_subtree_children(tree.root_node_id)
-                .map(|(_, node)| node.key().clone())
+            tree.subtrees[[].as_ref()]
+                .children
+                .iter()
+                .cloned()
                 .collect::<Vec<Key>>(),
             vec![b"0".to_vec(), b"00".to_vec()]
         );
@@ -329,16 +293,57 @@ mod tests {
             },
         );
 
-        let root_subtree = tree.root_subtree();
-        let inner_tree = root_subtree.inner_tree();
-        let value: Option<&InnerTreeNodeValue> = inner_tree
+        let root_subtree = tree.subtrees.get([].as_ref()).unwrap();
+        let value: Option<&InnerTreeNodeValue> = root_subtree
+            .inner_tree
             .root_node()
-            .and_then(|node| node.left_child(inner_tree))
-            .and_then(|node| node.right_child(inner_tree))
+            .and_then(|node| node.left_child(&root_subtree.inner_tree))
+            .and_then(|node| node.right_child(&root_subtree.inner_tree))
             .map(|node| &node.value);
         assert_eq!(
             value,
             Some(InnerTreeNodeValue::Scalar(b"value112".to_vec())).as_ref()
+        );
+    }
+
+    #[test]
+    fn test_nested_subtrees() {
+        let mut tree = Tree::new(b"root_tree_merk_root".to_vec());
+        tree.insert(
+            vec![],
+            b"root_tree_merk_root".to_vec(),
+            InnerTreeNode {
+                value: InnerTreeNodeValue::Subtree(Some(b"key01".to_vec())),
+                left: Some(b"key1".to_vec()),
+                right: Some(b"key2".to_vec()),
+            },
+        );
+        tree.insert(
+            vec![],
+            b"key1".to_vec(),
+            InnerTreeNode {
+                value: InnerTreeNodeValue::Subtree(Some(b"key11".to_vec())),
+                left: None,
+                right: None,
+            },
+        );
+        tree.insert(
+            vec![],
+            b"key2".to_vec(),
+            InnerTreeNode {
+                value: InnerTreeNodeValue::Subtree(Some(b"key21".to_vec())),
+                left: None,
+                right: None,
+            },
+        );
+        tree.insert(
+            vec![b"key2".to_vec()],
+            b"key21".to_vec(),
+            InnerTreeNode {
+                value: InnerTreeNodeValue::Subtree(Some(b"key211".to_vec())),
+                left: None,
+                right: None,
+            },
         );
     }
 }
