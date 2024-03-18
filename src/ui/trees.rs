@@ -220,9 +220,15 @@ pub(crate) fn draw_subtrees(
 
     // Referenced subtrees input pins index structure
     let mut referenced_pins: BTreeMap<(Path, Key), (egui_snarl::NodeId, usize)> = BTreeMap::new();
+    let mut reference_wires: Vec<(Path, Key, OutPinId)> = Vec::new();
 
     while let Some((parent_snarl_id, level, subtree)) = deque.pop_front() {
         let level_margin = max_height / (tree.levels_count[level] + 1) as f32;
+
+        let mut path = subtree.parent_path.clone().unwrap_or_default();
+        if let Some(key) = &subtree.key {
+            path.push(key.clone());
+        }
 
         let node_id = snarl.insert_node(
             (
@@ -240,12 +246,17 @@ pub(crate) fn draw_subtrees(
                 children: subtree.children.clone(),
                 key_display_variant: DisplayVariant::String,
                 showing_inner_tree: false,
-                refererred_keys: subtree
+                refererred_keys: tree
                     .referred_keys
-                    .iter()
-                    .enumerate()
-                    .map(|(i, key)| (key.clone(), (i + 1, DisplayVariant::String)))
-                    .collect(),
+                    .get(&path)
+                    .into_iter()
+                    .map(|set| {
+                        set.into_iter()
+                            .enumerate()
+                            .map(|(i, key)| (key.clone(), (i + 1, DisplayVariant::String)))
+                    })
+                    .flatten()
+                    .collect::<BTreeMap<_, _>>(),
                 references: subtree
                     .inner_tree
                     .nodes
@@ -297,21 +308,24 @@ pub(crate) fn draw_subtrees(
         let mut ref_out_counter = snarl[node_id].children.len();
         subtree.inner_tree.nodes.values().for_each(|node| {
             if let InnerTreeNodeValue::Reference(path, key) = &node.value {
-                if let Some((node, input)) = referenced_pins.get(&(path.clone(), key.clone())) {
-                    snarl.connect(
-                        OutPinId {
-                            node: node_id,
-                            output: ref_out_counter,
-                        },
-                        InPinId {
-                            node: *node,
-                            input: *input,
-                        },
-                    );
-                    ref_out_counter += 1;
-                }
+                reference_wires.push((
+                    path.clone(),
+                    key.clone(),
+                    OutPinId {
+                        node: node_id,
+                        output: ref_out_counter,
+                    },
+                ));
+                ref_out_counter += 1;
             }
         });
+    }
+
+    // Connect reference pins
+    for (path, key, out_pin) in reference_wires {
+        if let Some((node, input)) = referenced_pins.remove(&(path, key)) {
+            snarl.connect(out_pin, InPinId { node, input });
+        }
     }
 }
 

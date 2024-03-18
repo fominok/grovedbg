@@ -17,6 +17,7 @@ pub(crate) struct Tree {
     /// Shows the max amount of children that ever happened for a subtree,
     /// required to see how much space a node occupy regardless of content
     pub max_children_count: usize,
+    pub referred_keys: BTreeMap<Path, BTreeSet<Key>>,
 }
 
 #[derive(Debug, Default)]
@@ -25,7 +26,7 @@ pub(crate) struct SubtreeNode {
     pub parent_path: Option<Path>,
     pub children: BTreeSet<Key>,
     pub inner_tree: InnerTree,
-    pub referred_keys: BTreeSet<Key>,
+    // pub referred_keys: BTreeSet<Key>,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -68,6 +69,7 @@ impl Tree {
             subtrees,
             updated: true,
             max_children_count: 1,
+            referred_keys: Default::default(),
         }
     }
 
@@ -102,11 +104,15 @@ impl Tree {
         // In case of adding a reference the referenced subtree should be aware of it to
         // draw a pin after
         if let InnerTreeNodeValue::Reference(ref_path, key) = &node.value {
-            self.subtrees
-                .get_mut(ref_path)
-                .expect("inserted above")
-                .referred_keys
+            self.referred_keys
+                .entry(ref_path.clone())
+                .or_insert(Default::default())
                 .insert(key.clone());
+            // self.subtrees
+            //     .get_mut(ref_path)
+            //     .expect("inserted above")
+            //     .referred_keys
+            //     .insert(key.clone());
         }
 
         self.subtrees

@@ -1,8 +1,9 @@
 use std::collections::VecDeque;
 
 use grovedbg_grpc::{
-    element::Element, grove_dbg_client::GroveDbgClient, AbsolutePathReference, FetchRequest, Item,
-    Subtree,
+    element::Element, grove_dbg_client::GroveDbgClient, AbsolutePathReference, CousinReference,
+    FetchRequest, Item, RemovedCousinReference, SiblingReference, Subtree,
+    UpstreamFromElementHeightReference, UpstreamRootHeightReference,
 };
 
 use crate::{trees, Key, Path};
@@ -57,6 +58,70 @@ pub(crate) async fn full_fetch(
                     continue;
                 }
             }
+            Some(grovedbg_grpc::Element {
+                element:
+                    Some(Element::UpstreamRootHeightReference(UpstreamRootHeightReference {
+                        n_keep,
+                        path_append,
+                    })),
+            }) => {
+                let mut path: Vec<_> = node
+                    .path
+                    .iter()
+                    .cloned()
+                    .take(n_keep as usize)
+                    .chain(path_append.into_iter())
+                    .collect();
+                if let Some(key) = path.pop() {
+                    trees::InnerTreeNodeValue::Reference(path, key)
+                } else {
+                    continue;
+                }
+            }
+            Some(grovedbg_grpc::Element {
+                element:
+                    Some(Element::UpstreamFromElementHeightReference(
+                        UpstreamFromElementHeightReference {
+                            n_remove,
+                            path_append,
+                        },
+                    )),
+            }) => {
+                let mut path_iter = node.path.iter();
+                path_iter.nth_back(n_remove as usize);
+                let mut path: Vec<_> = path_iter.cloned().chain(path_append.into_iter()).collect();
+                if let Some(key) = path.pop() {
+                    trees::InnerTreeNodeValue::Reference(path, key)
+                } else {
+                    continue;
+                }
+            }
+            Some(grovedbg_grpc::Element {
+                element: Some(Element::CousinReference(CousinReference { swap_parent })),
+            }) => {
+                let mut path = node.path.clone();
+                if let Some(parent) = path.last_mut() {
+                    *parent = swap_parent;
+                    trees::InnerTreeNodeValue::Reference(path, node.key.clone())
+                } else {
+                    continue;
+                }
+            }
+            Some(grovedbg_grpc::Element {
+                element:
+                    Some(Element::RemovedCousinReference(RemovedCousinReference { swap_parent })),
+            }) => {
+                let mut path = node.path.clone();
+                if let Some(_) = path.pop() {
+                    path.extend(swap_parent);
+                    trees::InnerTreeNodeValue::Reference(path, node.key.clone())
+                } else {
+                    continue;
+                }
+            }
+            Some(grovedbg_grpc::Element {
+                element: Some(Element::SiblingReference(SiblingReference { sibling_key })),
+            }) => trees::InnerTreeNodeValue::Reference(node.path.clone(), sibling_key),
             _ => {
                 continue;
             }
