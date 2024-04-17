@@ -1,16 +1,16 @@
 use std::collections::VecDeque;
 
 use grovedbg_grpc::{
-    element::Element, grove_dbg_client::GroveDbgClient, AbsolutePathReference, CousinReference,
-    FetchRequest, Item, RemovedCousinReference, SiblingReference, Subtree,
-    UpstreamFromElementHeightReference, UpstreamRootHeightReference,
+    grove_dbg_client::GroveDbgClient, AbsolutePathReference, CousinReference, FetchRequest, Item,
+    RemovedCousinReference, SiblingReference, Subtree, UpstreamFromElementHeightReference,
+    UpstreamRootHeightReference,
 };
 
-use crate::{trees, Key, Path};
+use crate::model::{Element, Node, Tree};
 
 pub(crate) async fn full_fetch(
     client: &mut GroveDbgClient<grovedbg_grpc::tonic::transport::Channel>,
-) -> Result<trees::Tree, grovedbg_grpc::tonic::Status> {
+) -> Result<Tree, grovedbg_grpc::tonic::Status> {
     let root_subtree_root_node = client
         .fetch_node(FetchRequest {
             path: vec![],
@@ -19,17 +19,18 @@ pub(crate) async fn full_fetch(
         .await?
         .into_inner();
 
-    let mut tree = trees::Tree::new(root_subtree_root_node.key.clone());
+    let mut tree = Tree::new();
+    tree.set_root(root_subtree_root_node.key.clone());
     let mut queue = VecDeque::new();
     queue.push_back(root_subtree_root_node);
 
     while let Some(node) = queue.pop_front() {
-        let value = match node.element {
+        let element: Element = match node.element {
             Some(grovedbg_grpc::Element {
-                element: Some(Element::Item(Item { value })),
-            }) => trees::InnerTreeNodeValue::Scalar(value),
+                element: Some(grovedbg_grpc::element::Element::Item(Item { value })),
+            }) => Element::Item { value },
             Some(grovedbg_grpc::Element {
-                element: Some(Element::Subtree(Subtree { root_key })),
+                element: Some(grovedbg_grpc::element::Element::Subtree(Subtree { root_key })),
             }) => {
                 if let Some(key) = &root_key {
                     let mut path = node.path.clone();
@@ -46,24 +47,31 @@ pub(crate) async fn full_fetch(
                             .into_inner(),
                     );
                 }
-
-                trees::InnerTreeNodeValue::Subtree(root_key)
+                Element::Subtree { root_key }
             }
             Some(grovedbg_grpc::Element {
-                element: Some(Element::AbsolutePathReference(AbsolutePathReference { mut path })),
+                element:
+                    Some(grovedbg_grpc::element::Element::AbsolutePathReference(
+                        AbsolutePathReference { mut path },
+                    )),
             }) => {
                 if let Some(key) = path.pop() {
-                    trees::InnerTreeNodeValue::Reference(path, key)
+                    Element::Reference {
+                        path: path.into(),
+                        key,
+                    }
                 } else {
                     continue;
                 }
             }
             Some(grovedbg_grpc::Element {
                 element:
-                    Some(Element::UpstreamRootHeightReference(UpstreamRootHeightReference {
-                        n_keep,
-                        path_append,
-                    })),
+                    Some(grovedbg_grpc::element::Element::UpstreamRootHeightReference(
+                        UpstreamRootHeightReference {
+                            n_keep,
+                            path_append,
+                        },
+                    )),
             }) => {
                 let mut path: Vec<_> = node
                     .path
@@ -73,14 +81,17 @@ pub(crate) async fn full_fetch(
                     .chain(path_append.into_iter())
                     .collect();
                 if let Some(key) = path.pop() {
-                    trees::InnerTreeNodeValue::Reference(path, key)
+                    Element::Reference {
+                        path: path.into(),
+                        key,
+                    }
                 } else {
                     continue;
                 }
             }
             Some(grovedbg_grpc::Element {
                 element:
-                    Some(Element::UpstreamFromElementHeightReference(
+                    Some(grovedbg_grpc::element::Element::UpstreamFromElementHeightReference(
                         UpstreamFromElementHeightReference {
                             n_remove,
                             path_append,
@@ -91,37 +102,57 @@ pub(crate) async fn full_fetch(
                 path_iter.nth_back(n_remove as usize);
                 let mut path: Vec<_> = path_iter.cloned().chain(path_append.into_iter()).collect();
                 if let Some(key) = path.pop() {
-                    trees::InnerTreeNodeValue::Reference(path, key)
-                } else {
-                    continue;
-                }
-            }
-            Some(grovedbg_grpc::Element {
-                element: Some(Element::CousinReference(CousinReference { swap_parent })),
-            }) => {
-                let mut path = node.path.clone();
-                if let Some(parent) = path.last_mut() {
-                    *parent = swap_parent;
-                    trees::InnerTreeNodeValue::Reference(path, node.key.clone())
+                    Element::Reference {
+                        path: path.into(),
+                        key,
+                    }
                 } else {
                     continue;
                 }
             }
             Some(grovedbg_grpc::Element {
                 element:
-                    Some(Element::RemovedCousinReference(RemovedCousinReference { swap_parent })),
+                    Some(grovedbg_grpc::element::Element::CousinReference(CousinReference {
+                        swap_parent,
+                    })),
             }) => {
                 let mut path = node.path.clone();
-                if let Some(_) = path.pop() {
-                    path.extend(swap_parent);
-                    trees::InnerTreeNodeValue::Reference(path, node.key.clone())
+                if let Some(parent) = path.last_mut() {
+                    *parent = swap_parent;
+                    Element::Reference {
+                        path: path.into(),
+                        key: node.key.clone(),
+                    }
                 } else {
                     continue;
                 }
             }
             Some(grovedbg_grpc::Element {
-                element: Some(Element::SiblingReference(SiblingReference { sibling_key })),
-            }) => trees::InnerTreeNodeValue::Reference(node.path.clone(), sibling_key),
+                element:
+                    Some(grovedbg_grpc::element::Element::RemovedCousinReference(
+                        RemovedCousinReference { swap_parent },
+                    )),
+            }) => {
+                let mut path = node.path.clone();
+                if let Some(_) = path.pop() {
+                    path.extend(swap_parent);
+                    Element::Reference {
+                        path: path.into(),
+                        key: node.key.clone(),
+                    }
+                } else {
+                    continue;
+                }
+            }
+            Some(grovedbg_grpc::Element {
+                element:
+                    Some(grovedbg_grpc::element::Element::SiblingReference(SiblingReference {
+                        sibling_key,
+                    })),
+            }) => Element::Reference {
+                path: node.path.clone().into(),
+                key: sibling_key,
+            },
             _ => {
                 continue;
             }
@@ -152,12 +183,13 @@ pub(crate) async fn full_fetch(
         }
 
         tree.insert(
-            node.path,
+            node.path.into(),
             node.key,
-            trees::InnerTreeNode {
-                value,
-                left: node.left_child,
-                right: node.right_child,
+            Node {
+                element,
+                left_child: node.left_child,
+                right_child: node.right_child,
+                ui_state: Default::default(),
             },
         );
     }
