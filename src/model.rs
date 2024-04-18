@@ -8,7 +8,7 @@ use std::{
 
 use eframe::epaint::Pos2;
 
-use crate::ui::common::DisplayVariant;
+use crate::ui::DisplayVariant;
 
 #[derive(Debug, PartialEq, Eq, Clone, Default, Hash)]
 pub(crate) struct Path(Vec<Vec<u8>>);

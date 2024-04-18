@@ -35,11 +35,13 @@ pub(crate) fn draw_node<'a>(
 
 pub(crate) fn draw_element(ui: &mut egui::Ui, node: &Node) {
     match &node.element {
-        Element::Item { value } => binary_label(
-            ui,
-            value,
-            &mut node.ui_state.borrow_mut().item_display_variant,
-        ),
+        Element::Item { value } => {
+            binary_label(
+                ui,
+                value,
+                &mut node.ui_state.borrow_mut().item_display_variant,
+            );
+        }
         Element::SumItem { value } => {
             ui.label(format!("Value: {value}"));
         }
