@@ -17,7 +17,7 @@ fn get_tree() -> Tree {
         .unwrap()
         .block_on(async move {
             let mut client = GroveDbgClient::connect("http://[::1]:10000").await.unwrap();
-            fetch::full_fetch(&mut client).await.unwrap()
+            fetch::fetch_root(&mut client).await.unwrap()
         })
 }
 
