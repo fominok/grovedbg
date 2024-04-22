@@ -141,8 +141,10 @@ impl Tree {
             .flatten()
     }
 
-    pub(crate) fn get_subtree(&self, path: &Path) -> Option<&Subtree> {
-        self.subtrees.get(path)
+    pub(crate) fn get_subtree<'a>(&'a self, path: &'a Path) -> Option<SubtreeCtx> {
+        self.subtrees
+            .get(path)
+            .map(|subtree| SubtreeCtx { subtree, path })
     }
 
     pub(crate) fn insert(&mut self, path: Path, key: Key, node: Node) {
@@ -197,16 +199,6 @@ pub(crate) struct SubtreeUiState {
     pub(crate) output_point: Pos2,
 }
 
-// impl Default for SubtreeUiState {
-//     fn default() -> Self {
-//         SubtreeUiState {
-//             expanded: false,
-//             input_point: Default::default(),
-//             output_point: Default::default(),
-//         }
-//     }
-// }
-
 /// Subtree holds all the info about one specific subtree of GroveDB
 #[derive(Debug, Default)]
 #[cfg_attr(test, derive(PartialEq))]
@@ -228,12 +220,6 @@ pub(crate) struct Subtree {
     /// UI state of a subtree
     pub(crate) ui_state: RefCell<SubtreeUiState>,
 }
-
-// pub(crate) enum SubtreeInputPoint {
-//     RootNode(Pos2),
-//     FirstCluster(Pos2),
-//     CollapsedSubtree(Pos2),
-// }
 
 impl Subtree {
     fn new() -> Self {
@@ -407,6 +393,47 @@ impl Subtree {
         if !self.nodes.contains_key(&key) {
             self.insert(key, node);
         }
+    }
+}
+
+/// A wrapper type to guarantee that the subtree has the specified path.
+pub(crate) struct SubtreeCtx<'a> {
+    subtree: &'a Subtree,
+    path: &'a Path,
+}
+
+impl<'a> SubtreeCtx<'a> {
+    pub(crate) fn get_node(&'a self, key: KeySlice<'a>) -> Option<NodeCtx<'a>> {
+        self.subtree.nodes.get(key).map(|node| NodeCtx {
+            node,
+            path: self.path,
+            key,
+        })
+    }
+
+    pub(crate) fn subtree(&self) -> &Subtree {
+        self.subtree
+    }
+
+    pub(crate) fn path(&self) -> &Path {
+        self.path
+    }
+}
+
+/// A wrapper type to guarantee that the node has specified path and key.
+pub(crate) struct NodeCtx<'a> {
+    node: &'a Node,
+    path: &'a Path,
+    key: KeySlice<'a>,
+}
+
+impl NodeCtx<'_> {
+    pub(crate) fn path(&self) -> &Path {
+        self.path
+    }
+
+    pub(crate) fn key(&self) -> KeySlice {
+        self.key
     }
 }
 

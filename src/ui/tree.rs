@@ -64,24 +64,32 @@ impl<'u, 't> TreeDrawer<'u, 't> {
         key: KeySlice,
     ) -> Option<&'b Node> {
         let mut node = None;
-        let layer_response = egui::Area::new(Id::new(key))
-            .default_pos(coords)
-            .order(egui::Order::Foreground)
-            .show(self.ui.ctx(), |ui| {
-                ui.set_clip_rect(self.transform.inverse() * self.rect);
-                node = draw_node(ui, subtree, key);
-                if let (Some(node), Some(out_coords)) = (&node, parent_coords) {
-                    let painter = ui.painter();
-                    painter.line_segment(
-                        [out_coords, node.ui_state.borrow().input_point],
-                        Stroke {
-                            width: 1.0,
-                            color: Color32::GRAY,
-                        },
-                    );
-                }
-            })
-            .response;
+        let layer_response = egui::Area::new(Id::new((
+            parent_coords.map(|c| c.x).unwrap_or_default() as u32,
+            parent_coords.map(|c| c.y).unwrap_or_default() as u32,
+            key,
+        )))
+        .default_pos(coords)
+        .order(egui::Order::Foreground)
+        .show(self.ui.ctx(), |ui| {
+            ui.set_clip_rect(self.transform.inverse() * self.rect);
+            node = draw_node(ui, subtree, key);
+            if let (Some(node), Some(out_coords)) = (&node, parent_coords) {
+                let painter = ui.painter();
+                painter.line_segment(
+                    [out_coords, node.ui_state.borrow().input_point],
+                    Stroke {
+                        width: 1.0,
+                        color: Color32::GRAY,
+                    },
+                );
+            }
+        })
+        .response;
+
+        if node.is_none() {
+            return None;
+        }
 
         layer_response.context_menu(|menu| {
             if menu.button("Collapse").clicked() {
@@ -364,7 +372,7 @@ impl<'u, 't> TreeDrawer<'u, 't> {
             let subtree_parent_out: Option<Pos2> = self
                 .tree
                 .get_subtree(&parent_path)
-                .map(|s| key.map(|k| s.get_node_output(&k)))
+                .map(|s| key.map(|k| s.subtree().get_node_output(&k)))
                 .flatten()
                 .flatten();
             if let (Some(in_point), Some(out_point)) = (root_in, subtree_parent_out) {

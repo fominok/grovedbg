@@ -22,6 +22,8 @@ fn get_tree() -> Tree {
 }
 
 fn main() -> eframe::Result<()> {
+    tracing_subscriber::fmt::init();
+
     let mut transform = TSTransform::default();
 
     let options = eframe::NativeOptions::default();
