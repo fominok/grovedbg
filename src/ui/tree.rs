@@ -10,7 +10,9 @@ use super::{
     common::{binary_label_colored, path_label},
     node::{draw_element, draw_node, element_to_color},
 };
-use crate::model::{Element, Key, KeySlice, LevelInfo, LevelsInfo, Node, Path, Subtree, Tree};
+use crate::model::{
+    Element, Key, KeySlice, LevelInfo, LevelsInfo, NodeCtx, Path, SubtreeCtx, Tree,
+};
 
 const NODE_WIDTH: f32 = 200.0;
 const NODE_HEIGHT: f32 = 30.0;
@@ -60,62 +62,47 @@ impl<'u, 't> TreeDrawer<'u, 't> {
         &mut self,
         parent_coords: Option<Pos2>,
         coords: Pos2,
-        subtree: &'b Subtree,
-        key: KeySlice,
-    ) -> Option<&'b Node> {
-        let mut node = None;
-        let layer_response = egui::Area::new(Id::new((
-            parent_coords.map(|c| c.x).unwrap_or_default() as u32,
-            parent_coords.map(|c| c.y).unwrap_or_default() as u32,
-            key,
-        )))
-        .default_pos(coords)
-        .order(egui::Order::Foreground)
-        .show(self.ui.ctx(), |ui| {
-            ui.set_clip_rect(self.transform.inverse() * self.rect);
-            node = draw_node(ui, subtree, key);
-            if let (Some(node), Some(out_coords)) = (&node, parent_coords) {
-                let painter = ui.painter();
-                painter.line_segment(
-                    [out_coords, node.ui_state.borrow().input_point],
-                    Stroke {
-                        width: 1.0,
-                        color: Color32::GRAY,
-                    },
-                );
-            }
-        })
-        .response;
+        node_ctx: NodeCtx<'b>,
+    ) {
+        let layer_response = egui::Area::new(Id::new(("area", node_ctx.egui_id())))
+            .default_pos(coords)
+            .order(egui::Order::Foreground)
+            .show(self.ui.ctx(), |ui| {
+                ui.set_clip_rect(self.transform.inverse() * self.rect);
+                if let Some(out_coords) = parent_coords {
+                    let painter = ui.painter();
+                    painter.line_segment(
+                        [out_coords, node_ctx.node().ui_state.borrow().input_point],
+                        Stroke {
+                            width: 1.0,
+                            color: Color32::GRAY,
+                        },
+                    );
+                }
 
-        if node.is_none() {
-            return None;
-        }
+                draw_node(ui, node_ctx);
+            })
+            .response;
 
-        layer_response.context_menu(|menu| {
-            if menu.button("Collapse").clicked() {
-                subtree.ui_state.borrow_mut().expanded = false;
-            }
-        });
-
-        node.iter_mut().for_each(|n| {
-            let mut state = n.ui_state.borrow_mut();
+        {
+            let mut state = node_ctx.node().ui_state.borrow_mut();
             state.input_point = layer_response.rect.center_top();
             state.output_point = layer_response.rect.center_bottom();
             state.left_sibling_point = layer_response.rect.left_center();
             state.right_sibling_point = layer_response.rect.right_center();
-        });
+        };
         self.ui
             .ctx()
             .set_transform_layer(layer_response.layer_id, self.transform);
-        node
     }
 
-    fn draw_subtree_part(&mut self, mut coords: Pos2, subtree: &Subtree, key: KeySlice) {
-        let mut current_level_nodes: Vec<(Option<Key>, Option<Key>)> = Vec::new();
-        let mut next_level_nodes: Vec<(Option<Key>, Option<Key>)> = Vec::new();
+    fn draw_subtree_part<'a>(&mut self, mut coords: Pos2, node_ctx: NodeCtx<'a>) {
+        let subtree_ctx = node_ctx.subtree_ctx();
+        let mut current_level_nodes: Vec<(Option<KeySlice>, Option<KeySlice>)> = Vec::new();
+        let mut next_level_nodes: Vec<(Option<KeySlice>, Option<KeySlice>)> = Vec::new();
         let mut level = 0;
 
-        current_level_nodes.push((None, Some(key.to_vec())));
+        current_level_nodes.push((None, Some(node_ctx.key())));
 
         let x_base = coords.x;
 
@@ -125,33 +112,24 @@ impl<'u, 't> TreeDrawer<'u, 't> {
             }
 
             for (parent_key, node_key) in current_level_nodes.drain(..) {
-                if let Some(node_key) = node_key {
-                    let parent_out_coords = parent_key.map(|k| {
-                        subtree
-                            .nodes
-                            .get(&k)
-                            .unwrap()
-                            .ui_state
-                            .borrow()
-                            .output_point
-                    });
-                    let node = self.draw_node_area(parent_out_coords, coords, subtree, &node_key);
+                if let Some(cur_node_ctx) = node_key.map(|k| subtree_ctx.get_node(&k)).flatten() {
+                    let parent_out_coords = parent_key
+                        .map(|k| subtree_ctx.subtree().get_node_output(&k))
+                        .flatten();
+                    self.draw_node_area(parent_out_coords, coords, cur_node_ctx);
 
-                    if let Some((Element::Reference { path, key }, out)) =
-                        node.map(|n| (&n.element, n.ui_state.borrow().output_point))
-                    {
-                        self.references
-                            .push((out.clone(), path.clone(), key.clone()));
+                    let (node, _, key) = cur_node_ctx.split();
+
+                    if let Element::Reference { path, key } = &node.element {
+                        self.references.push((
+                            cur_node_ctx.node().ui_state.borrow().output_point,
+                            path.clone(),
+                            key.clone(),
+                        ));
                     }
 
-                    next_level_nodes.push((
-                        Some(node_key.clone()),
-                        node.as_ref().map(|n| n.left_child.clone()).flatten(),
-                    ));
-                    next_level_nodes.push((
-                        Some(node_key),
-                        node.as_ref().map(|n| n.right_child.clone()).flatten(),
-                    ));
+                    next_level_nodes.push((Some(key), node.left_child.as_deref()));
+                    next_level_nodes.push((Some(key), node.right_child.as_deref()));
                 }
                 coords.x += X_MARGIN + NODE_WIDTH;
             }
@@ -166,22 +144,16 @@ impl<'u, 't> TreeDrawer<'u, 't> {
         }
     }
 
-    fn draw_subtree(&mut self, path: &Path, coords: Pos2, subtree_width: f32, subtree: &Subtree) {
-        if subtree.ui_state.borrow().expanded {
-            self.draw_subtree_expanded(coords, subtree_width, subtree);
+    fn draw_subtree(&mut self, coords: Pos2, subtree_width: f32, subtree_ctx: SubtreeCtx) {
+        if subtree_ctx.subtree().ui_state.borrow().expanded {
+            self.draw_subtree_expanded(coords, subtree_width, subtree_ctx);
         } else {
-            self.draw_subtree_collapsed(path, coords, subtree_width, subtree);
+            self.draw_subtree_collapsed(coords, subtree_ctx);
         }
     }
 
-    fn draw_subtree_collapsed(
-        &mut self,
-        path: &Path,
-        coords: Pos2,
-        _subtree_width: f32,
-        subtree: &Subtree,
-    ) {
-        let layer_response = egui::Area::new(Id::new((coords.x as u32, coords.y as u32)))
+    fn draw_subtree_collapsed(&mut self, coords: Pos2, subtree_ctx: SubtreeCtx) {
+        let layer_response = egui::Area::new(subtree_ctx.egui_id())
             .default_pos(coords)
             .order(egui::Order::Foreground)
             .show(self.ui.ctx(), |ui| {
@@ -199,7 +171,7 @@ impl<'u, 't> TreeDrawer<'u, 't> {
                         ui.style_mut().wrap = Some(false);
                         ui.collapsing("🖧", |menu| {
                             if menu.button("Expand").clicked() {
-                                subtree.ui_state.borrow_mut().expanded = true;
+                                subtree_ctx.subtree().ui_state.borrow_mut().expanded = true;
                             }
                         });
 
@@ -213,8 +185,12 @@ impl<'u, 't> TreeDrawer<'u, 't> {
 
                         path_label(
                             ui,
-                            path,
-                            &mut subtree.ui_state.borrow_mut().path_display_variant,
+                            subtree_ctx.path(),
+                            &mut subtree_ctx
+                                .subtree()
+                                .ui_state
+                                .borrow_mut()
+                                .path_display_variant,
                         );
 
                         ui.allocate_ui(
@@ -225,15 +201,15 @@ impl<'u, 't> TreeDrawer<'u, 't> {
                             |ui| ui.separator(),
                         );
 
-                        for (key, node) in subtree.nodes.iter() {
+                        for (key, node) in subtree_ctx.subtree().nodes.iter() {
                             if let Element::Reference {
                                 path: ref_path,
                                 key: ref_key,
                             } = &node.element
                             {
-                                if path != ref_path {
+                                if subtree_ctx.path() != ref_path {
                                     self.references.push((
-                                        subtree.ui_state.borrow().output_point,
+                                        subtree_ctx.subtree().ui_state.borrow().output_point,
                                         ref_path.clone(),
                                         ref_key.clone(),
                                     ));
@@ -271,7 +247,7 @@ impl<'u, 't> TreeDrawer<'u, 't> {
             })
             .response;
 
-        let mut state = subtree.ui_state.borrow_mut();
+        let mut state = subtree_ctx.subtree().ui_state.borrow_mut();
         state.input_point = layer_response.rect.center_top();
         state.output_point = layer_response.rect.center_bottom();
 
@@ -280,54 +256,60 @@ impl<'u, 't> TreeDrawer<'u, 't> {
             .set_transform_layer(layer_response.layer_id, self.transform);
     }
 
-    fn draw_subtree_expanded(&mut self, mut coords: Pos2, subtree_width: f32, subtree: &Subtree) {
+    fn draw_subtree_expanded(
+        &mut self,
+        mut coords: Pos2,
+        subtree_width: f32,
+        subtree_ctx: SubtreeCtx,
+    ) {
+        let subtree = subtree_ctx.subtree();
+        // There is no sense in drawing empty subtree as merk
+        if subtree.is_empty() {
+            subtree.ui_state.borrow_mut().expanded = false;
+            return;
+        }
+
+        let cluster_roots_iter = subtree_ctx.iter_cluster_roots();
+
         let width_step = subtree_width
-            / (subtree.cluster_roots.len() + subtree.root_node.as_ref().map(|_| 1).unwrap_or(0))
+            / (cluster_roots_iter.len() + subtree.root_node.as_ref().map(|_| 1).unwrap_or(0))
                 as f32;
         let mut prev_point = None;
 
-        // There is no sense in drawing empty subtree as merk
-        if subtree.root_node.is_none() && subtree.cluster_roots.is_empty() {
-            subtree.ui_state.borrow_mut().expanded = false;
-        }
-
-        subtree
-            .root_node
-            .iter()
-            .chain(subtree.cluster_roots.iter())
-            .for_each(|rn| {
-                self.draw_subtree_part(coords, subtree, &rn);
+        subtree_ctx
+            .get_root()
+            .into_iter()
+            .chain(cluster_roots_iter)
+            .for_each(|node_ctx| {
+                self.draw_subtree_part(coords, node_ctx);
                 coords.x += width_step;
 
-                if let Some(node) = subtree.nodes.get(rn.as_slice()) {
-                    let state = node.ui_state.borrow();
+                let node = node_ctx.node();
 
-                    if let Some(right_point) = prev_point {
-                        // TODO need a better id
-                        let layer_response =
-                            egui::Area::new(Id::new(("sib", coords.x as u32, coords.y as u32)))
-                                .default_pos(Pos2::new(0.0, 0.0))
-                                .order(egui::Order::Background)
-                                .show(self.ui.ctx(), |ui| {
-                                    ui.set_clip_rect(self.transform.inverse() * self.rect);
+                let state = node.ui_state.borrow();
 
-                                    let painter = ui.painter();
-                                    painter.line_segment(
-                                        [state.left_sibling_point, right_point],
-                                        Stroke {
-                                            width: 1.0,
-                                            color: Color32::KHAKI,
-                                        },
-                                    );
-                                })
-                                .response;
-                        self.ui
-                            .ctx()
-                            .set_transform_layer(layer_response.layer_id, self.transform);
-                    }
+                if let Some(right_point) = prev_point {
+                    let layer_response = egui::Area::new(Id::new(("clusters", node_ctx.egui_id())))
+                        .order(egui::Order::Background)
+                        .show(self.ui.ctx(), |ui| {
+                            ui.set_clip_rect(self.transform.inverse() * self.rect);
 
-                    prev_point = Some(state.right_sibling_point);
+                            let painter = ui.painter();
+                            painter.line_segment(
+                                [state.left_sibling_point, right_point],
+                                Stroke {
+                                    width: 1.0,
+                                    color: Color32::KHAKI,
+                                },
+                            );
+                        })
+                        .response;
+                    self.ui
+                        .ctx()
+                        .set_transform_layer(layer_response.layer_id, self.transform);
                 }
+
+                prev_point = Some(state.right_sibling_point);
             });
     }
 
@@ -346,9 +328,9 @@ impl<'u, 't> TreeDrawer<'u, 't> {
 
         let mut current_pos = Pos2::new(level_subtree_width, 0.0);
 
-        for (path, subtree) in self.tree.subtrees.iter() {
-            if current_level != path.len() {
-                current_level = path.len();
+        for subtree_ctx in self.tree.iter_subtrees() {
+            if current_level != subtree_ctx.path().len() {
+                current_level = subtree_ctx.path().len();
                 idx_on_level = 0;
 
                 level_subtree_block_size =
@@ -360,14 +342,14 @@ impl<'u, 't> TreeDrawer<'u, 't> {
                 current_pos.x = level_subtree_width;
             }
 
-            self.draw_subtree(path, current_pos, level_subtree_width, subtree);
+            self.draw_subtree(current_pos, level_subtree_width, subtree_ctx);
 
             current_pos.x += level_subtree_width;
 
             idx_on_level += 1;
 
-            let root_in = subtree.get_subtree_input_point();
-            let mut parent_path = path.clone();
+            let root_in = subtree_ctx.subtree().get_subtree_input_point();
+            let mut parent_path = subtree_ctx.path().clone();
             let key = parent_path.pop();
             let subtree_parent_out: Option<Pos2> = self
                 .tree
@@ -376,22 +358,23 @@ impl<'u, 't> TreeDrawer<'u, 't> {
                 .flatten()
                 .flatten();
             if let (Some(in_point), Some(out_point)) = (root_in, subtree_parent_out) {
-                let layer_response = egui::Area::new(Id::new(("subtree_lines", path)))
-                    .default_pos(Pos2::new(0.0, 0.0))
-                    .order(egui::Order::Background)
-                    .show(self.ui.ctx(), |ui| {
-                        ui.set_clip_rect(self.transform.inverse() * self.rect);
+                let layer_response =
+                    egui::Area::new(Id::new(("subtree_lines", subtree_ctx.path())))
+                        .default_pos(Pos2::new(0.0, 0.0))
+                        .order(egui::Order::Background)
+                        .show(self.ui.ctx(), |ui| {
+                            ui.set_clip_rect(self.transform.inverse() * self.rect);
 
-                        let painter = ui.painter();
-                        painter.line_segment(
-                            [out_point, in_point],
-                            Stroke {
-                                width: 1.0,
-                                color: Color32::GOLD,
-                            },
-                        );
-                    })
-                    .response;
+                            let painter = ui.painter();
+                            painter.line_segment(
+                                [out_point, in_point],
+                                Stroke {
+                                    width: 1.0,
+                                    color: Color32::GOLD,
+                                },
+                            );
+                        })
+                        .response;
                 self.ui
                     .ctx()
                     .set_transform_layer(layer_response.layer_id, self.transform);

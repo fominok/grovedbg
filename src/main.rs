@@ -71,6 +71,7 @@ fn main() -> eframe::Result<()> {
             }
 
             let drawer = TreeDrawer::new(ui, transform, rect, &tree);
+
             drawer.draw_tree();
 
             draw_legend(ui);

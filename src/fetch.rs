@@ -91,7 +91,7 @@ pub(crate) async fn fetch_root(client: &mut Client) -> Result<Tree, FetchError> 
 //     }
 //     Some(grovedbg_grpc::Element {
 //         element:
-//             
+//
 // Some(grovedbg_grpc::element::Element::UpstreamRootHeightReference(
 //                 UpstreamRootHeightReference {
 //                     n_keep,
@@ -117,7 +117,7 @@ pub(crate) async fn fetch_root(client: &mut Client) -> Result<Tree, FetchError> 
 //     }
 //     Some(grovedbg_grpc::Element {
 //         element:
-//             
+//
 // Some(grovedbg_grpc::element::Element::UpstreamFromElementHeightReference(
 //                 UpstreamFromElementHeightReference {
 //                     n_remove,
@@ -139,7 +139,7 @@ pub(crate) async fn fetch_root(client: &mut Client) -> Result<Tree, FetchError> 
 //     }
 //     Some(grovedbg_grpc::Element {
 //         element:
-//             
+//
 // Some(grovedbg_grpc::element::Element::CousinReference(CousinReference {
 //                 swap_parent,
 //             })),
@@ -174,7 +174,7 @@ pub(crate) async fn fetch_root(client: &mut Client) -> Result<Tree, FetchError> 
 //     }
 //     Some(grovedbg_grpc::Element {
 //         element:
-//             
+//
 // Some(grovedbg_grpc::element::Element::SiblingReference(SiblingReference {
 //                 sibling_key,
 //             })),

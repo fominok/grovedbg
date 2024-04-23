@@ -6,7 +6,7 @@ use std::{
     ops::{Deref, DerefMut},
 };
 
-use eframe::epaint::Pos2;
+use eframe::{egui, epaint::Pos2};
 
 use crate::ui::DisplayVariant;
 
@@ -91,6 +91,12 @@ impl Tree {
             .entry(vec![].into())
             .or_default()
             .set_root(root_key);
+    }
+
+    pub(crate) fn iter_subtrees(&self) -> impl ExactSizeIterator<Item = SubtreeCtx> {
+        self.subtrees
+            .iter()
+            .map(|(path, subtree)| SubtreeCtx { path, subtree })
     }
 
     /// Returns a vector that represents how many subtrees are on each level
@@ -211,7 +217,7 @@ pub(crate) struct Subtree {
     /// GroveDb we may occasionally be unaware of all connections, but still
     /// want to know how to draw it. Since we're drawing from roots, we have to
     /// keep these "local" roots.
-    pub(crate) cluster_roots: BTreeSet<Key>,
+    cluster_roots: BTreeSet<Key>,
     /// All fetched subtree nodes
     pub(crate) nodes: BTreeMap<Key, Node>,
     /// Subtree nodes' keys to keep track of nodes that are not yet fetched but
@@ -222,6 +228,10 @@ pub(crate) struct Subtree {
 }
 
 impl Subtree {
+    pub(crate) fn is_empty(&self) -> bool {
+        self.root_node.is_none() && self.cluster_roots.is_empty()
+    }
+
     fn new() -> Self {
         Default::default()
     }
@@ -231,6 +241,12 @@ impl Subtree {
             root_node: Some(root_node),
             ..Default::default()
         }
+    }
+
+    pub(crate) fn iter_cluster_roots(&self) -> impl Iterator<Item = &Node> {
+        self.cluster_roots
+            .iter()
+            .map(|key| self.nodes.get(key).expect("cluster roots are in sync"))
     }
 
     pub(crate) fn toggle_expanded(&self) {
@@ -397,6 +413,7 @@ impl Subtree {
 }
 
 /// A wrapper type to guarantee that the subtree has the specified path.
+#[derive(Clone, Copy)]
 pub(crate) struct SubtreeCtx<'a> {
     subtree: &'a Subtree,
     path: &'a Path,
@@ -408,7 +425,16 @@ impl<'a> SubtreeCtx<'a> {
             node,
             path: self.path,
             key,
+            subtree: self.subtree,
         })
+    }
+
+    pub(crate) fn get_root(&'a self) -> Option<NodeCtx<'a>> {
+        self.subtree
+            .root_node
+            .as_ref()
+            .map(|key| self.get_node(key))
+            .flatten()
     }
 
     pub(crate) fn subtree(&self) -> &Subtree {
@@ -418,22 +444,64 @@ impl<'a> SubtreeCtx<'a> {
     pub(crate) fn path(&self) -> &Path {
         self.path
     }
+
+    pub(crate) fn iter_cluster_roots(&self) -> impl ExactSizeIterator<Item = NodeCtx> {
+        self.subtree.cluster_roots.iter().map(|key| NodeCtx {
+            node: self
+                .subtree
+                .nodes
+                .get(key)
+                .expect("cluster roots and nodes are in sync"),
+            path: self.path,
+            key,
+            subtree: self.subtree,
+        })
+    }
+
+    pub(crate) fn egui_id(&self) -> egui::Id {
+        egui::Id::new(("subtree", self.path))
+    }
 }
 
 /// A wrapper type to guarantee that the node has specified path and key.
+#[derive(Clone, Copy)]
 pub(crate) struct NodeCtx<'a> {
     node: &'a Node,
     path: &'a Path,
     key: KeySlice<'a>,
+    subtree: &'a Subtree,
 }
 
-impl NodeCtx<'_> {
+impl<'a> NodeCtx<'a> {
     pub(crate) fn path(&self) -> &Path {
         self.path
     }
 
     pub(crate) fn key(&self) -> KeySlice {
         self.key
+    }
+
+    pub(crate) fn split(self) -> (&'a Node, &'a Path, KeySlice<'a>) {
+        (self.node, self.path, self.key)
+    }
+
+    pub(crate) fn node(&self) -> &Node {
+        self.node
+    }
+
+    pub(crate) fn subtree(&self) -> &Subtree {
+        self.subtree
+    }
+
+    pub(crate) fn subtree_ctx(&self) -> SubtreeCtx {
+        SubtreeCtx {
+            subtree: self.subtree,
+            path: self.path,
+        }
+    }
+
+    pub(crate) fn egui_id(&self) -> egui::Id {
+        egui::Id::new(("node", self.path, self.key))
     }
 }
 

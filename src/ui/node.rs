@@ -4,22 +4,16 @@ use eframe::{
 };
 
 use super::common::{binary_label, bytes_by_display_variant, path_label};
-use crate::model::{Element, KeySlice, Node, Subtree};
+use crate::model::{Element, Node, NodeCtx};
 
-pub(crate) fn draw_node<'a>(
-    ui: &mut egui::Ui,
-    subtree: &'a Subtree,
-    key: KeySlice,
-) -> Option<&'a Node> {
-    let Some(node) = subtree.nodes.get(key) else {
-        return None;
-    };
+pub(crate) fn draw_node<'a>(ui: &mut egui::Ui, node_ctx: NodeCtx<'a>) {
+    let (node, _, key) = node_ctx.split();
 
     let mut stroke = Stroke::default();
     stroke.color = element_to_color(&node.element);
     stroke.width = 1.0;
 
-    egui::Frame::default()
+    let response = egui::Frame::default()
         .rounding(egui::Rounding::same(4.0))
         .inner_margin(egui::Margin::same(8.0))
         .stroke(stroke)
@@ -28,9 +22,14 @@ pub(crate) fn draw_node<'a>(
             ui.style_mut().wrap = Some(false);
             binary_label(ui, key, &mut node.ui_state.borrow_mut().key_display_variant);
             draw_element(ui, &node);
-        });
+        })
+        .response;
 
-    Some(node)
+    response.context_menu(|menu| {
+        if menu.button("Collapse").clicked() {
+            node_ctx.subtree().ui_state.borrow_mut().expanded = false;
+        }
+    });
 }
 
 pub(crate) fn draw_element(ui: &mut egui::Ui, node: &Node) {
