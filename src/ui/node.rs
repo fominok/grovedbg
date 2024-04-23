@@ -27,7 +27,7 @@ pub(crate) fn draw_node<'a>(ui: &mut egui::Ui, node_ctx: NodeCtx<'a>) {
 
     response.context_menu(|menu| {
         if menu.button("Collapse").clicked() {
-            node_ctx.subtree().ui_state.borrow_mut().expanded = false;
+            node_ctx.subtree().set_collapsed();
         }
     });
 }

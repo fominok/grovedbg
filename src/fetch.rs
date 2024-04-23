@@ -1,9 +1,21 @@
 mod proto_conversion;
 
+use std::{
+    collections::VecDeque,
+    sync::{Arc, Mutex},
+};
+
 use grovedbg_grpc::{grove_dbg_client::GroveDbgClient, FetchRequest};
+use tokio::sync::mpsc::Receiver;
 
 use self::proto_conversion::BadProtoElement;
-use crate::model::Tree;
+use crate::model::{Key, Node, Path, Tree};
+
+pub(crate) enum Message {
+    FetchRoot,
+    FetchNode { path: Path, key: Key },
+    FetchBranch { path: Path, key: Key },
+}
 
 pub(crate) type Client = GroveDbgClient<grovedbg_grpc::tonic::transport::Channel>;
 
@@ -15,7 +27,83 @@ pub(crate) enum FetchError {
     TransportError(#[from] grovedbg_grpc::tonic::Status),
 }
 
-pub(crate) async fn fetch_root(client: &mut Client) -> Result<Tree, FetchError> {
+pub(crate) async fn process_messages(mut receiver: Receiver<Message>, tree: Arc<Mutex<Tree>>) {
+    // TODO error handling
+    let mut client = GroveDbgClient::connect("http://[::1]:10000").await.unwrap();
+
+    while let Some(message) = receiver.recv().await {
+        match message {
+            Message::FetchRoot => {
+                let root_node = client
+                    .fetch_node(FetchRequest {
+                        path: vec![],
+                        key: vec![],
+                    })
+                    .await
+                    .unwrap()
+                    .into_inner();
+
+                let mut lock = tree.lock().unwrap();
+                lock.set_root(root_node.key.clone());
+                lock.insert(
+                    vec![].into(),
+                    root_node.key.clone(),
+                    root_node.try_into().unwrap(),
+                );
+            }
+            Message::FetchNode { path, key } => {
+                let node = client
+                    .fetch_node(FetchRequest {
+                        path: path.to_vec(),
+                        key: key.clone(),
+                    })
+                    .await
+                    .unwrap()
+                    .into_inner()
+                    .try_into()
+                    .unwrap();
+                let mut lock = tree.lock().unwrap();
+                lock.insert(path, key, node);
+            }
+            Message::FetchBranch { path, key } => {
+                let mut queue = VecDeque::new();
+                queue.push_back(key.clone());
+
+                let mut to_insert = Vec::new();
+
+                while let Some(node_key) = queue.pop_front() {
+                    let node: Node = client
+                        .fetch_node(FetchRequest {
+                            path: path.to_vec(),
+                            key: node_key.clone(),
+                        })
+                        .await
+                        .unwrap()
+                        .into_inner()
+                        .try_into()
+                        .unwrap();
+
+                    if let Some(left) = &node.left_child {
+                        queue.push_back(left.clone());
+                    }
+
+                    if let Some(right) = &node.right_child {
+                        queue.push_back(right.clone());
+                    }
+
+                    to_insert.push((node_key, node));
+                }
+
+                let mut lock = tree.lock().unwrap();
+                to_insert
+                    .into_iter()
+                    .for_each(|(key, node)| lock.insert(path.clone(), key, node));
+            }
+        }
+    }
+}
+
+pub(crate) async fn fetch_root(tree: &mut Tree, client: &mut Client) -> Result<(), FetchError> {
     let root_subtree_root_node = client
         .fetch_node(FetchRequest {
             path: vec![],
@@ -24,7 +112,6 @@ pub(crate) async fn fetch_root(client: &mut Client) -> Result<Tree, FetchError> 
         .await?
         .into_inner();
 
-    let mut tree = Tree::new();
     tree.set_root(root_subtree_root_node.key.clone());
     tree.insert(
         vec![].into(),
@@ -32,7 +119,7 @@ pub(crate) async fn fetch_root(client: &mut Client) -> Result<Tree, FetchError> 
         root_subtree_root_node.try_into()?,
     );
 
-    Ok(tree)
+    Ok(())
 }
 
 // pub(crate) async fn full_fetch(client: &mut Client) -> Result<Tree,

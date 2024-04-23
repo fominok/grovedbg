@@ -5,13 +5,15 @@ use eframe::{
     emath::TSTransform,
     epaint::{Color32, Pos2, Rect, Stroke},
 };
+use tokio::sync::mpsc::Sender;
 
 use super::{
     common::{binary_label_colored, path_label},
     node::{draw_element, draw_node, element_to_color},
 };
-use crate::model::{
-    Element, Key, KeySlice, LevelInfo, LevelsInfo, NodeCtx, Path, SubtreeCtx, Tree,
+use crate::{
+    fetch::Message,
+    model::{Element, Key, KeySlice, LevelInfo, LevelsInfo, NodeCtx, Path, SubtreeCtx, Tree},
 };
 
 const NODE_WIDTH: f32 = 200.0;
@@ -39,6 +41,7 @@ pub(crate) struct TreeDrawer<'u, 't> {
     references: Vec<(Pos2, Path, Key)>,
     tree: &'t Tree,
     levels: LevelsInfo,
+    sender: &'t Sender<Message>,
 }
 
 impl<'u, 't> TreeDrawer<'u, 't> {
@@ -47,6 +50,7 @@ impl<'u, 't> TreeDrawer<'u, 't> {
         transform: TSTransform,
         rect: Rect,
         tree: &'t Tree,
+        sender: &'t Sender<Message>,
     ) -> Self {
         Self {
             ui,
@@ -55,6 +59,7 @@ impl<'u, 't> TreeDrawer<'u, 't> {
             references: vec![],
             tree,
             levels: tree.levels(),
+            sender,
         }
     }
 
@@ -145,7 +150,7 @@ impl<'u, 't> TreeDrawer<'u, 't> {
     }
 
     fn draw_subtree(&mut self, coords: Pos2, subtree_width: f32, subtree_ctx: SubtreeCtx) {
-        if subtree_ctx.subtree().ui_state.borrow().expanded {
+        if subtree_ctx.subtree().is_expanded() {
             self.draw_subtree_expanded(coords, subtree_width, subtree_ctx);
         } else {
             self.draw_subtree_collapsed(coords, subtree_ctx);
@@ -153,6 +158,8 @@ impl<'u, 't> TreeDrawer<'u, 't> {
     }
 
     fn draw_subtree_collapsed(&mut self, coords: Pos2, subtree_ctx: SubtreeCtx) {
+        let subtree = subtree_ctx.subtree();
+
         let layer_response = egui::Area::new(subtree_ctx.egui_id())
             .default_pos(coords)
             .order(egui::Order::Foreground)
@@ -170,8 +177,18 @@ impl<'u, 't> TreeDrawer<'u, 't> {
                     .show(ui, |ui| {
                         ui.style_mut().wrap = Some(false);
                         ui.collapsing("🖧", |menu| {
-                            if menu.button("Expand").clicked() {
-                                subtree_ctx.subtree().ui_state.borrow_mut().expanded = true;
+                            if !subtree.is_empty() && menu.button("Expand").clicked() {
+                                subtree.set_expanded();
+                            }
+
+                            if menu.button("Fetch all").clicked() {
+                                if let Some(key) = &subtree.root_node {
+                                    // TODO error handling
+                                    self.sender.blocking_send(Message::FetchBranch {
+                                        path: subtree_ctx.path().clone(),
+                                        key: key.clone(),
+                                    });
+                                }
                             }
                         });
 
@@ -186,11 +203,7 @@ impl<'u, 't> TreeDrawer<'u, 't> {
                         path_label(
                             ui,
                             subtree_ctx.path(),
-                            &mut subtree_ctx
-                                .subtree()
-                                .ui_state
-                                .borrow_mut()
-                                .path_display_variant,
+                            &mut subtree.path_display_variant_mut(),
                         );
 
                         ui.allocate_ui(
@@ -201,7 +214,7 @@ impl<'u, 't> TreeDrawer<'u, 't> {
                             |ui| ui.separator(),
                         );
 
-                        for (key, node) in subtree_ctx.subtree().nodes.iter() {
+                        for (key, node) in subtree.nodes.iter() {
                             if let Element::Reference {
                                 path: ref_path,
                                 key: ref_key,
@@ -209,7 +222,7 @@ impl<'u, 't> TreeDrawer<'u, 't> {
                             {
                                 if subtree_ctx.path() != ref_path {
                                     self.references.push((
-                                        subtree_ctx.subtree().ui_state.borrow().output_point,
+                                        subtree.get_subtree_output_point(),
                                         ref_path.clone(),
                                         ref_key.clone(),
                                     ));
@@ -247,9 +260,8 @@ impl<'u, 't> TreeDrawer<'u, 't> {
             })
             .response;
 
-        let mut state = subtree_ctx.subtree().ui_state.borrow_mut();
-        state.input_point = layer_response.rect.center_top();
-        state.output_point = layer_response.rect.center_bottom();
+        subtree.set_input_point(layer_response.rect.center_top());
+        subtree.set_output_point(layer_response.rect.center_bottom());
 
         self.ui
             .ctx()
@@ -263,11 +275,6 @@ impl<'u, 't> TreeDrawer<'u, 't> {
         subtree_ctx: SubtreeCtx,
     ) {
         let subtree = subtree_ctx.subtree();
-        // There is no sense in drawing empty subtree as merk
-        if subtree.is_empty() {
-            subtree.ui_state.borrow_mut().expanded = false;
-            return;
-        }
 
         let cluster_roots_iter = subtree_ctx.iter_cluster_roots();
 
@@ -314,6 +321,9 @@ impl<'u, 't> TreeDrawer<'u, 't> {
     }
 
     pub(crate) fn draw_tree(mut self) {
+        if self.levels.levels_info.is_empty() {
+            return;
+        }
         let max_width = subtree_block_size(&self.levels.levels_info[self.levels.widest_level_idx])
             .0
             * self.levels.levels_info[self.levels.widest_level_idx].n_subtrees as f32

@@ -4,21 +4,30 @@ mod model;
 mod test_utils;
 mod ui;
 
+use std::sync::{Arc, Mutex};
+
 use eframe::egui::{self, emath::TSTransform};
-use grovedbg_grpc::grove_dbg_client::GroveDbgClient;
+use fetch::Message;
+use tokio::sync::mpsc::{channel, Receiver};
 
 use crate::{
     model::Tree,
     ui::{draw_legend, TreeDrawer},
 };
 
-fn get_tree() -> Tree {
+// fn get_tree() -> Tree {
+//     tokio::runtime::Runtime::new()
+//         .unwrap()
+//         .block_on(async move {
+//             let mut client = GroveDbgClient::connect("http://[::1]:10000").await.unwrap();
+//             fetch::fetch_root(&mut client).await.unwrap()
+//         })
+// }
+
+fn start_message_processing(receiver: Receiver<Message>, tree: Arc<Mutex<Tree>>) {
     tokio::runtime::Runtime::new()
         .unwrap()
-        .block_on(async move {
-            let mut client = GroveDbgClient::connect("http://[::1]:10000").await.unwrap();
-            fetch::fetch_root(&mut client).await.unwrap()
-        })
+        .block_on(fetch::process_messages(receiver, tree))
 }
 
 fn main() -> eframe::Result<()> {
@@ -28,7 +37,13 @@ fn main() -> eframe::Result<()> {
 
     let options = eframe::NativeOptions::default();
 
-    let tree = get_tree();
+    let tree = Arc::new(Mutex::new(Tree::new()));
+
+    let (sender, receiver) = channel(10);
+    sender.blocking_send(Message::FetchRoot).unwrap();
+
+    let tree_arc = Arc::clone(&tree);
+    std::thread::spawn(|| start_message_processing(receiver, tree_arc));
 
     eframe::run_simple_native("GroveDB Visualizer", options, move |ctx, _frame| {
         egui::CentralPanel::default().show(ctx, |ui| {
@@ -70,9 +85,11 @@ fn main() -> eframe::Result<()> {
                 }
             }
 
-            let drawer = TreeDrawer::new(ui, transform, rect, &tree);
-
-            drawer.draw_tree();
+            {
+                let lock = tree.lock().unwrap();
+                let drawer = TreeDrawer::new(ui, transform, rect, &lock, &sender);
+                drawer.draw_tree();
+            }
 
             draw_legend(ui);
         });

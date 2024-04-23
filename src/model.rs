@@ -1,6 +1,6 @@
 use std::{
     borrow::Borrow,
-    cell::RefCell,
+    cell::{RefCell, RefMut},
     cmp,
     collections::{BTreeMap, BTreeSet, HashSet},
     ops::{Deref, DerefMut},
@@ -224,12 +224,12 @@ pub(crate) struct Subtree {
     /// referred by parent node
     waitlist: HashSet<Key>,
     /// UI state of a subtree
-    pub(crate) ui_state: RefCell<SubtreeUiState>,
+    ui_state: RefCell<SubtreeUiState>,
 }
 
 impl Subtree {
     pub(crate) fn is_empty(&self) -> bool {
-        self.root_node.is_none() && self.cluster_roots.is_empty()
+        self.nodes.is_empty()
     }
 
     fn new() -> Self {
@@ -243,15 +243,38 @@ impl Subtree {
         }
     }
 
+    pub(crate) fn is_expanded(&self) -> bool {
+        self.ui_state.borrow().expanded
+    }
+
+    pub(crate) fn set_expanded(&self) {
+        if !self.is_empty() {
+            self.ui_state.borrow_mut().expanded = true;
+        }
+    }
+
+    pub(crate) fn set_collapsed(&self) {
+        self.ui_state.borrow_mut().expanded = false;
+    }
+
+    pub(crate) fn set_input_point(&self, input_point: Pos2) {
+        self.ui_state.borrow_mut().input_point = input_point;
+    }
+
+    pub(crate) fn set_output_point(&self, output_point: Pos2) {
+        self.ui_state.borrow_mut().output_point = output_point;
+    }
+
+    pub(crate) fn path_display_variant_mut(&self) -> RefMut<DisplayVariant> {
+        RefMut::map(self.ui_state.borrow_mut(), |state| {
+            &mut state.path_display_variant
+        })
+    }
+
     pub(crate) fn iter_cluster_roots(&self) -> impl Iterator<Item = &Node> {
         self.cluster_roots
             .iter()
             .map(|key| self.nodes.get(key).expect("cluster roots are in sync"))
-    }
-
-    pub(crate) fn toggle_expanded(&self) {
-        let mut state = self.ui_state.borrow_mut();
-        state.expanded = !state.expanded;
     }
 
     pub(crate) fn get_subtree_input_point(&self) -> Option<Pos2> {
@@ -277,6 +300,10 @@ impl Subtree {
         }
 
         None
+    }
+
+    pub(crate) fn get_subtree_output_point(&self) -> Pos2 {
+        self.ui_state.borrow().output_point
     }
 
     /// Get input point of a node, if subtree is collapsed it will return input
