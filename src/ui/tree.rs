@@ -20,6 +20,7 @@ const NODE_WIDTH: f32 = 200.0;
 const NODE_HEIGHT: f32 = 30.0;
 const X_MARGIN: f32 = 100.0;
 const Y_MARGIN: f32 = 200.0;
+const KV_PER_PAGE: usize = 10;
 
 fn subtree_block_size(level_info: &LevelInfo) -> (f32, f32) {
     if level_info.max_subtree_size == 0 {
@@ -214,7 +215,12 @@ impl<'u, 't> TreeDrawer<'u, 't> {
                             |ui| ui.separator(),
                         );
 
-                        for (key, node) in subtree.nodes.iter() {
+                        for (key, node) in subtree
+                            .nodes
+                            .iter()
+                            .skip(subtree.page_idx() * KV_PER_PAGE)
+                            .take(KV_PER_PAGE)
+                        {
                             if let Element::Reference {
                                 path: ref_path,
                                 key: ref_key,
@@ -255,6 +261,26 @@ impl<'u, 't> TreeDrawer<'u, 't> {
                                 },
                                 |ui| ui.separator(),
                             );
+                        }
+
+                        if subtree.nodes.len() > KV_PER_PAGE {
+                            ui.horizontal(|pagination| {
+                                if pagination
+                                    .add_enabled(subtree.page_idx() > 0, egui::Button::new("⬅"))
+                                    .clicked()
+                                {
+                                    subtree.prev_page();
+                                }
+                                if pagination
+                                    .add_enabled(
+                                        (subtree.page_idx() + 1) * KV_PER_PAGE < subtree.n_nodes(),
+                                        egui::Button::new("➡"),
+                                    )
+                                    .clicked()
+                                {
+                                    subtree.next_page();
+                                }
+                            });
                         }
                     });
             })

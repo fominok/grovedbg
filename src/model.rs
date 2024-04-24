@@ -203,6 +203,7 @@ pub(crate) struct SubtreeUiState {
     pub(crate) expanded: bool,
     pub(crate) input_point: Pos2,
     pub(crate) output_point: Pos2,
+    pub(crate) page: usize,
 }
 
 /// Subtree holds all the info about one specific subtree of GroveDB
@@ -241,6 +242,26 @@ impl Subtree {
             root_node: Some(root_node),
             ..Default::default()
         }
+    }
+
+    pub(crate) fn page_idx(&self) -> usize {
+        self.ui_state.borrow().page
+    }
+
+    pub(crate) fn next_page(&self) {
+        self.ui_state.borrow_mut().page += 1;
+    }
+
+    pub(crate) fn prev_page(&self) {
+        let page: &mut usize = &mut self.ui_state.borrow_mut().page;
+
+        if *page > 0 {
+            *page -= 1;
+        }
+    }
+
+    pub(crate) fn n_nodes(&self) -> usize {
+        self.nodes.len()
     }
 
     pub(crate) fn is_expanded(&self) -> bool {

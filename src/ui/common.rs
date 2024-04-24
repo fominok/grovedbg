@@ -18,7 +18,7 @@ fn bytes_as_slice(bytes: &[u8]) -> String {
         format!("{:?}", bytes)
     } else {
         let mut buf = String::from("[");
-        bytes.iter().for_each(|b| {
+        bytes.iter().take(MAX_BYTES).for_each(|b| {
             let _ = write!(buf, "{b},");
         });
         buf.push_str("...");
@@ -82,8 +82,8 @@ pub(crate) fn binary_label<'a>(
 
 #[derive(Debug, Default, PartialEq, Clone, Copy)]
 pub(crate) enum DisplayVariant {
-    U8,
     #[default]
+    U8,
     String,
     Hex,
 }
