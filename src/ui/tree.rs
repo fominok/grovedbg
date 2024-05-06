@@ -237,12 +237,19 @@ impl<'u, 't> TreeDrawer<'u, 't> {
 
                             let color = element_to_color(&node.element);
 
-                            binary_label_colored(
-                                ui,
-                                key,
-                                &mut node.ui_state.borrow_mut().key_display_variant,
-                                color,
-                            );
+                            ui.horizontal(|key_line| {
+                                if matches!(node.element, Element::Subtree { .. }) {
+                                    let mut visibility = subtree_ctx.is_child_visible(key);
+                                    key_line.checkbox(&mut visibility, "");
+                                    subtree_ctx.set_child_visibility(key, visibility);
+                                }
+                                binary_label_colored(
+                                    key_line,
+                                    key,
+                                    &mut node.ui_state.borrow_mut().key_display_variant,
+                                    color,
+                                );
+                            });
 
                             if matches!(
                                 node.element,
@@ -364,7 +371,11 @@ impl<'u, 't> TreeDrawer<'u, 't> {
 
         let mut current_pos = Pos2::new(level_subtree_width, 0.0);
 
-        for subtree_ctx in self.tree.iter_subtrees() {
+        for subtree_ctx in self
+            .tree
+            .iter_subtrees()
+            .filter(|ctx| ctx.subtree().visible())
+        {
             if current_level != subtree_ctx.path().len() {
                 current_level = subtree_ctx.path().len();
                 idx_on_level = 0;

@@ -75,6 +75,39 @@ pub(crate) struct LevelsInfo {
     pub(crate) widest_level_idx: usize,
 }
 
+#[derive(Clone, Copy)]
+struct SetVisibility<'a> {
+    tree: &'a Tree,
+    path: &'a Path,
+}
+
+impl<'a> SetVisibility<'a> {
+    pub(crate) fn new<'b>(tree: &'a Tree, ctx: &'b SubtreeCtx<'a>) -> Self {
+        SetVisibility {
+            tree,
+            path: ctx.path(),
+        }
+    }
+
+    pub(crate) fn set_visible(&self, key: KeySlice, visible: bool) {
+        let mut path = self.path.clone();
+        path.push(key.to_owned());
+        self.tree
+            .get_subtree(&path)
+            .into_iter()
+            .for_each(|subtree| subtree.subtree().set_visible(visible));
+    }
+
+    pub(crate) fn visible(&self, key: KeySlice) -> bool {
+        let mut path = self.path.clone();
+        path.push(key.to_owned());
+        self.tree
+            .get_subtree(&path)
+            .map(|subtree| subtree.subtree().visible())
+            .unwrap_or_default()
+    }
+}
+
 /// Structure that holds the currently known state of GroveDB.
 #[derive(Debug, Default)]
 pub(crate) struct Tree {
@@ -90,13 +123,16 @@ impl Tree {
         self.subtrees
             .entry(vec![].into())
             .or_default()
-            .set_root(root_key);
+            .set_root(root_key)
+            .set_visible(true);
     }
 
     pub(crate) fn iter_subtrees(&self) -> impl ExactSizeIterator<Item = SubtreeCtx> {
-        self.subtrees
-            .iter()
-            .map(|(path, subtree)| SubtreeCtx { path, subtree })
+        self.subtrees.iter().map(|(path, subtree)| SubtreeCtx {
+            path,
+            subtree,
+            set_child_visibility: SetVisibility { tree: self, path },
+        })
     }
 
     /// Returns a vector that represents how many subtrees are on each level
@@ -148,9 +184,11 @@ impl Tree {
     }
 
     pub(crate) fn get_subtree<'a>(&'a self, path: &'a Path) -> Option<SubtreeCtx> {
-        self.subtrees
-            .get(path)
-            .map(|subtree| SubtreeCtx { subtree, path })
+        self.subtrees.get(path).map(|subtree| SubtreeCtx {
+            subtree,
+            path,
+            set_child_visibility: SetVisibility { tree: self, path },
+        })
     }
 
     pub(crate) fn insert(&mut self, path: Path, key: Key, node: Node) {
@@ -204,6 +242,7 @@ pub(crate) struct SubtreeUiState {
     pub(crate) input_point: Pos2,
     pub(crate) output_point: Pos2,
     pub(crate) page: usize,
+    pub(crate) visible: bool,
 }
 
 /// Subtree holds all the info about one specific subtree of GroveDB
@@ -242,6 +281,14 @@ impl Subtree {
             root_node: Some(root_node),
             ..Default::default()
         }
+    }
+
+    pub(crate) fn visible(&self) -> bool {
+        self.ui_state.borrow().visible
+    }
+
+    pub(crate) fn set_visible(&self, visible: bool) {
+        self.ui_state.borrow_mut().visible = visible;
     }
 
     pub(crate) fn page_idx(&self) -> usize {
@@ -352,9 +399,10 @@ impl Subtree {
     }
 
     /// Set a root node of a subtree
-    fn set_root(&mut self, root_node: Key) {
+    fn set_root(&mut self, root_node: Key) -> &mut Self {
         self.cluster_roots.remove(&root_node);
         self.root_node = Some(root_node);
+        self
     }
 
     pub(crate) fn root_node(&self) -> Option<&Node> {
@@ -465,19 +513,28 @@ impl Subtree {
 pub(crate) struct SubtreeCtx<'a> {
     subtree: &'a Subtree,
     path: &'a Path,
+    set_child_visibility: SetVisibility<'a>,
 }
 
 impl<'a> SubtreeCtx<'a> {
-    pub(crate) fn get_node(&'a self, key: KeySlice<'a>) -> Option<NodeCtx<'a>> {
+    pub(crate) fn set_child_visibility(&self, key: KeySlice<'a>, visible: bool) {
+        self.set_child_visibility.set_visible(key, visible)
+    }
+
+    pub(crate) fn is_child_visible(&self, key: KeySlice<'a>) -> bool {
+        self.set_child_visibility.visible(key)
+    }
+
+    pub(crate) fn get_node(&self, key: KeySlice<'a>) -> Option<NodeCtx<'a>> {
         self.subtree.nodes.get(key).map(|node| NodeCtx {
             node,
             path: self.path,
             key,
-            subtree: self.subtree,
+            subtree_ctx: self.clone(),
         })
     }
 
-    pub(crate) fn get_root(&'a self) -> Option<NodeCtx<'a>> {
+    pub(crate) fn get_root(&self) -> Option<NodeCtx<'a>> {
         self.subtree
             .root_node
             .as_ref()
@@ -485,11 +542,11 @@ impl<'a> SubtreeCtx<'a> {
             .flatten()
     }
 
-    pub(crate) fn subtree(&self) -> &Subtree {
+    pub(crate) fn subtree(&self) -> &'a Subtree {
         self.subtree
     }
 
-    pub(crate) fn path(&self) -> &Path {
+    pub(crate) fn path(&self) -> &'a Path {
         self.path
     }
 
@@ -502,7 +559,7 @@ impl<'a> SubtreeCtx<'a> {
                 .expect("cluster roots and nodes are in sync"),
             path: self.path,
             key,
-            subtree: self.subtree,
+            subtree_ctx: self.clone(),
         })
     }
 
@@ -517,7 +574,7 @@ pub(crate) struct NodeCtx<'a> {
     node: &'a Node,
     path: &'a Path,
     key: KeySlice<'a>,
-    subtree: &'a Subtree,
+    subtree_ctx: SubtreeCtx<'a>,
 }
 
 impl<'a> NodeCtx<'a> {
@@ -538,14 +595,11 @@ impl<'a> NodeCtx<'a> {
     }
 
     pub(crate) fn subtree(&self) -> &Subtree {
-        self.subtree
+        self.subtree_ctx.subtree
     }
 
     pub(crate) fn subtree_ctx(&self) -> SubtreeCtx {
-        SubtreeCtx {
-            subtree: self.subtree,
-            path: self.path,
-        }
+        self.subtree_ctx
     }
 
     pub(crate) fn egui_id(&self) -> egui::Id {
