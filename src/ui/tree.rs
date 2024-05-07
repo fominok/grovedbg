@@ -178,7 +178,10 @@ impl<'u, 't> TreeDrawer<'u, 't> {
                     .show(ui, |ui| {
                         ui.style_mut().wrap = Some(false);
                         ui.collapsing("🖧", |menu| {
-                            if !subtree.is_empty() && menu.button("Expand").clicked() {
+                            if !subtree.is_empty()
+                                && subtree.root_node().is_some()
+                                && menu.button("Expand").clicked()
+                            {
                                 subtree.set_expanded();
                             }
 
@@ -186,6 +189,16 @@ impl<'u, 't> TreeDrawer<'u, 't> {
                                 if let Some(key) = &subtree.root_node {
                                     // TODO error handling
                                     self.sender.blocking_send(Message::FetchBranch {
+                                        path: subtree_ctx.path().clone(),
+                                        key: key.clone(),
+                                    });
+                                }
+                            }
+
+                            if let Some(key) = &subtree.root_node {
+                                if menu.button("Fetch root").clicked() {
+                                    // TODO error handling
+                                    self.sender.blocking_send(Message::FetchNode {
                                         path: subtree_ctx.path().clone(),
                                         key: key.clone(),
                                     });

@@ -635,6 +635,8 @@ pub(crate) struct NodeUiState {
     pub(crate) output_point: Pos2,
     pub(crate) left_sibling_point: Pos2,
     pub(crate) right_sibling_point: Pos2,
+    pub(crate) show_left: bool,
+    pub(crate) show_right: bool,
 }
 
 #[derive(Debug, Clone, Default)]
