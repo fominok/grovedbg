@@ -22,6 +22,18 @@ pub(crate) fn draw_node<'a>(ui: &mut egui::Ui, node_ctx: NodeCtx<'a>) {
             ui.style_mut().wrap = Some(false);
             binary_label(ui, key, &mut node.ui_state.borrow_mut().key_display_variant);
             draw_element(ui, &node);
+
+            ui.horizontal(|footer| {
+                if footer
+                    .add_enabled(node.left_child.is_some(), egui::Button::new("⬅"))
+                    .clicked()
+                {}
+                footer.label("|");
+                if footer
+                    .add_enabled(node.right_child.is_some(), egui::Button::new("➡"))
+                    .clicked()
+                {}
+            });
         })
         .response;
 

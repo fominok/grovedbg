@@ -1,5 +1,7 @@
 //! Tree structure UI module
 
+use std::borrow::Borrow;
+
 use eframe::{
     egui::{self, Id},
     emath::TSTransform,
@@ -134,8 +136,13 @@ impl<'u, 't> TreeDrawer<'u, 't> {
                         ));
                     }
 
-                    next_level_nodes.push((Some(key), node.left_child.as_deref()));
-                    next_level_nodes.push((Some(key), node.right_child.as_deref()));
+                    let state = node.ui_state.borrow();
+                    if state.show_left {
+                        next_level_nodes.push((Some(key), node.left_child.as_deref()));
+                    }
+                    if state.show_right {
+                        next_level_nodes.push((Some(key), node.right_child.as_deref()));
+                    }
                 }
                 coords.x += X_MARGIN + NODE_WIDTH;
             }
@@ -183,6 +190,7 @@ impl<'u, 't> TreeDrawer<'u, 't> {
                                 && menu.button("Expand").clicked()
                             {
                                 subtree.set_expanded();
+                                subtree_ctx.set_children_invisible();
                             }
 
                             if menu.button("Fetch all").clicked() {
@@ -341,41 +349,38 @@ impl<'u, 't> TreeDrawer<'u, 't> {
                 as f32;
         let mut prev_point = None;
 
-        subtree_ctx
-            .get_root()
-            .into_iter()
-            .chain(cluster_roots_iter)
-            .for_each(|node_ctx| {
-                self.draw_subtree_part(coords, node_ctx);
-                coords.x += width_step;
+        // .chain(cluster_roots_iter) TODO figure out what to do with clusters
+        subtree_ctx.get_root().into_iter().for_each(|node_ctx| {
+            self.draw_subtree_part(coords, node_ctx);
+            coords.x += width_step;
 
-                let node = node_ctx.node();
+            let node = node_ctx.node();
 
-                let state = node.ui_state.borrow();
+            let state = node.ui_state.borrow();
 
-                if let Some(right_point) = prev_point {
-                    let layer_response = egui::Area::new(Id::new(("clusters", node_ctx.egui_id())))
-                        .order(egui::Order::Background)
-                        .show(self.ui.ctx(), |ui| {
-                            ui.set_clip_rect(self.transform.inverse() * self.rect);
+            if let Some(right_point) = prev_point {
+                let layer_response = egui::Area::new(Id::new(("clusters", node_ctx.egui_id())))
+                    .order(egui::Order::Background)
+                    .show(self.ui.ctx(), |ui| {
+                        ui.set_clip_rect(self.transform.inverse() * self.rect);
 
-                            let painter = ui.painter();
-                            painter.line_segment(
-                                [state.left_sibling_point, right_point],
-                                Stroke {
-                                    width: 1.0,
-                                    color: Color32::KHAKI,
-                                },
-                            );
-                        })
-                        .response;
-                    self.ui
-                        .ctx()
-                        .set_transform_layer(layer_response.layer_id, self.transform);
-                }
+                        let painter = ui.painter();
+                        painter.line_segment(
+                            [state.left_sibling_point, right_point],
+                            Stroke {
+                                width: 1.0,
+                                color: Color32::KHAKI,
+                            },
+                        );
+                    })
+                    .response;
+                self.ui
+                    .ctx()
+                    .set_transform_layer(layer_response.layer_id, self.transform);
+            }
 
-                prev_point = Some(state.right_sibling_point);
-            });
+            prev_point = Some(state.right_sibling_point);
+        });
     }
 
     pub(crate) fn draw_tree(mut self) {

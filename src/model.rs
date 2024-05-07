@@ -540,6 +540,20 @@ impl<'a> SubtreeCtx<'a> {
         self.set_child_visibility.set_visible(key, visible)
     }
 
+    pub(crate) fn set_children_invisible(&self) {
+        self.subtree
+            .nodes
+            .iter()
+            .filter_map(|(key, node)| {
+                matches!(
+                    node.element,
+                    Element::Sumtree { .. } | Element::Subtree { .. }
+                )
+                .then_some(key)
+            })
+            .for_each(|key| self.set_child_visibility.set_visible(key, false));
+    }
+
     pub(crate) fn is_child_visible(&self, key: KeySlice<'a>) -> bool {
         self.set_child_visibility.visible(key)
     }
