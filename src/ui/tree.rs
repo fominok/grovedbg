@@ -191,6 +191,15 @@ impl<'u, 't> TreeDrawer<'u, 't> {
                                     });
                                 }
                             }
+
+                            if menu.button("Unload").clicked() {
+                                if let Some(key) = &subtree.root_node {
+                                    // TODO error handling
+                                    self.sender.blocking_send(Message::UnloadSubtree {
+                                        path: subtree_ctx.path().clone(),
+                                    });
+                                }
+                            }
                         });
 
                         ui.allocate_ui(
@@ -239,9 +248,12 @@ impl<'u, 't> TreeDrawer<'u, 't> {
 
                             ui.horizontal(|key_line| {
                                 if matches!(node.element, Element::Subtree { .. }) {
-                                    let mut visibility = subtree_ctx.is_child_visible(key);
+                                    let prev_visibility = subtree_ctx.is_child_visible(key);
+                                    let mut visibility = prev_visibility;
                                     key_line.checkbox(&mut visibility, "");
-                                    subtree_ctx.set_child_visibility(key, visibility);
+                                    if prev_visibility != visibility {
+                                        subtree_ctx.set_child_visibility(key, visibility);
+                                    }
                                 }
                                 binary_label_colored(
                                     key_line,

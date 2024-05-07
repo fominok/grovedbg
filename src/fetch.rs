@@ -15,6 +15,7 @@ pub(crate) enum Message {
     FetchRoot,
     FetchNode { path: Path, key: Key },
     FetchBranch { path: Path, key: Key },
+    UnloadSubtree { path: Path },
 }
 
 pub(crate) type Client = GroveDbgClient<grovedbg_grpc::tonic::transport::Channel>;
@@ -98,6 +99,10 @@ pub(crate) async fn process_messages(mut receiver: Receiver<Message>, tree: Arc<
                 to_insert
                     .into_iter()
                     .for_each(|(key, node)| lock.insert(path.clone(), key, node));
+            }
+            Message::UnloadSubtree { path } => {
+                let mut lock = tree.lock().unwrap();
+                lock.clear_subtree(&path);
             }
         }
     }

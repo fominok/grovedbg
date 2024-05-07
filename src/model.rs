@@ -3,7 +3,7 @@ use std::{
     cell::{RefCell, RefMut},
     cmp,
     collections::{BTreeMap, BTreeSet, HashSet},
-    ops::{Deref, DerefMut},
+    ops::{Bound::*, Deref, DerefMut},
 };
 
 use eframe::{egui, epaint::Pos2};
@@ -92,10 +92,19 @@ impl<'a> SetVisibility<'a> {
     pub(crate) fn set_visible(&self, key: KeySlice, visible: bool) {
         let mut path = self.path.clone();
         path.push(key.to_owned());
-        self.tree
-            .get_subtree(&path)
-            .into_iter()
-            .for_each(|subtree| subtree.subtree().set_visible(visible));
+        if let Some(subtree) = self.tree.get_subtree(&path) {
+            subtree.subtree().set_visible(visible);
+
+            if !visible {
+                self.tree
+                    .subtrees
+                    .range::<Path, _>(&path..)
+                    .filter(|(p, _)| p.starts_with(&path))
+                    .for_each(|(_, s)| {
+                        s.set_visible(false);
+                    });
+            }
+        }
     }
 
     pub(crate) fn visible(&self, key: KeySlice) -> bool {
@@ -216,6 +225,16 @@ impl Tree {
     pub(crate) fn remove(&mut self, path: &Path, key: KeySlice) {
         if let Some(subtree) = self.subtrees.get_mut(path) {
             subtree.remove(key);
+        }
+    }
+
+    /// The data structure guarantees  that for a node representing a subtree
+    /// an according subtree entry must exists, that means if there is a parent
+    /// subtree with a node representing the root node of the deletion
+    /// subject then in won't be deleted completely.
+    pub(crate) fn clear_subtree(&mut self, path: &Path) {
+        if let Some(subtree) = self.subtrees.get_mut(path) {
+            subtree.nodes.clear();
         }
     }
 
