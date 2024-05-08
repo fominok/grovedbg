@@ -88,7 +88,7 @@ impl<'u, 't> TreeDrawer<'u, 't> {
                     );
                 }
 
-                draw_node(ui, node_ctx);
+                draw_node(ui, self.sender, node_ctx);
             })
             .response;
 

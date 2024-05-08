@@ -3,7 +3,7 @@ use std::{
     cell::{RefCell, RefMut},
     cmp,
     collections::{BTreeMap, BTreeSet, HashSet},
-    ops::{Bound::*, Deref, DerefMut},
+    ops::{Deref, DerefMut},
 };
 
 use eframe::{egui, epaint::Pos2};
@@ -637,6 +637,14 @@ impl<'a> NodeCtx<'a> {
 
     pub(crate) fn egui_id(&self) -> egui::Id {
         egui::Id::new(("node", self.path, self.key))
+    }
+
+    pub(crate) fn set_left_visible(&self) {
+        self.node.ui_state.borrow_mut().show_left = true;
+    }
+
+    pub(crate) fn set_right_visible(&self) {
+        self.node.ui_state.borrow_mut().show_right = true;
     }
 }
 
