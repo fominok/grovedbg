@@ -292,6 +292,8 @@ pub(crate) struct SubtreeUiState {
     pub(crate) width: f32,
     pub(crate) children_width: f32,
     pub(crate) height: f32,
+    pub(crate) levels: u32,
+    pub(crate) leafs: u32,
 }
 
 /// Subtree holds all the info about one specific subtree of GroveDB
@@ -324,14 +326,24 @@ impl Subtree {
     fn update_base_dimensions(&self) -> (f32, f32) {
         let mut state = self.ui_state.borrow_mut();
         if state.expanded {
-            let (width, height) = expanded_subtree_dimentions(self);
+            let (width, height, levels, leafs) = expanded_subtree_dimentions(self);
             state.width = width;
             state.height = height;
+            state.levels = levels;
+            state.leafs = leafs;
         } else {
             state.width = COLLAPSED_SUBTREE_WIDTH;
             state.height = COLLAPSED_SUBTREE_HEIGHT;
         }
         (state.width, state.height)
+    }
+
+    pub(crate) fn levels(&self) -> u32 {
+        self.ui_state.borrow().levels
+    }
+
+    pub(crate) fn leafs(&self) -> u32 {
+        self.ui_state.borrow().leafs
     }
 
     pub(crate) fn width(&self) -> f32 {
@@ -831,7 +843,7 @@ pub(crate) enum Element {
 //         );
 //         subtree.insert(
 //             b"left1".to_vec(),
-//             
+//
 // Node::new_item(b"left1_value".to_vec()).with_right_child(b"right3".to_vec()),
 //         );
 //         subtree.insert(b"right2".to_vec(),

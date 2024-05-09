@@ -1,7 +1,7 @@
 //! Tree structure UI module
 
 use eframe::{
-    egui::{self, Id},
+    egui::{self, accesskit::Node, Id},
     emath::TSTransform,
     epaint::{Color32, Pos2, Rect, Stroke},
 };
@@ -71,7 +71,7 @@ impl<'u, 't> TreeDrawer<'u, 't> {
         node_ctx: NodeCtx<'b>,
     ) {
         let layer_response = egui::Area::new(Id::new(("area", node_ctx.egui_id())))
-            .default_pos(coords)
+            .fixed_pos(coords)
             .order(egui::Order::Foreground)
             .show(self.ui.ctx(), |ui| {
                 ui.set_clip_rect(self.transform.inverse() * self.rect);
@@ -106,15 +106,23 @@ impl<'u, 't> TreeDrawer<'u, 't> {
         let subtree_ctx = node_ctx.subtree_ctx();
         let mut current_level_nodes: Vec<(Option<KeySlice>, Option<KeySlice>)> = Vec::new();
         let mut next_level_nodes: Vec<(Option<KeySlice>, Option<KeySlice>)> = Vec::new();
-        let mut level = 0;
+        let mut level: u32 = 0;
+        let levels = node_ctx.subtree().levels();
+        let leafs = node_ctx.subtree().leafs();
 
         current_level_nodes.push((None, Some(node_ctx.key())));
 
-        let x_base = coords.x;
+        let max_width = node_ctx.subtree().width();
+        let x_base = coords.x - max_width / 2.0;
 
-        loop {
+        let unit = max_width / leafs as f32;
+
+        while level <= levels {
             if level > 0 {
-                coords.x = x_base - 2f32.powi(level - 2) * (X_MARGIN + NODE_WIDTH);
+                coords.x = x_base;
+                if level + 1 < levels {
+                    coords.x += 2u32.pow(levels - level - 2) as f32 * unit;
+                }
             }
 
             for (parent_key, node_key) in current_level_nodes.drain(..) {
@@ -135,14 +143,12 @@ impl<'u, 't> TreeDrawer<'u, 't> {
                     }
 
                     let state = node.ui_state.borrow();
-                    if state.show_left {
-                        next_level_nodes.push((Some(key), node.left_child.as_deref()));
-                    }
-                    if state.show_right {
-                        next_level_nodes.push((Some(key), node.right_child.as_deref()));
-                    }
+                    next_level_nodes.push((Some(key), node.left_child.as_deref()));
+                    next_level_nodes.push((Some(key), node.right_child.as_deref()));
                 }
-                coords.x += X_MARGIN + NODE_WIDTH;
+                if level > 0 {
+                    coords.x += 2u32.pow(levels - level) as f32 * unit;
+                }
             }
 
             if next_level_nodes.is_empty() {

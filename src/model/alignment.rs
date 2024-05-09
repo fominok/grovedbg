@@ -5,7 +5,7 @@ use std::{collections::BTreeMap, mem};
 use super::Subtree;
 use crate::model::{Path, Tree};
 
-const NODE_WIDTH: f32 = 100.;
+const NODE_WIDTH: f32 = 140.;
 const NODE_HEIGHT: f32 = 100.;
 pub(super) const COLLAPSED_SUBTREE_WIDTH: f32 = 400.;
 pub(super) const COLLAPSED_SUBTREE_HEIGHT: f32 = 600.;
@@ -28,12 +28,12 @@ fn leaves_level_count(n_levels: u32) -> u32 {
     }
 }
 
-pub(super) fn expanded_subtree_dimentions(subtree: &Subtree) -> (f32, f32) {
+pub(super) fn expanded_subtree_dimentions(subtree: &Subtree) -> (f32, f32, u32, u32) {
     if let Some(root_node) = subtree.root_node() {
-        let mut visible_nodes_n = 0;
-        let mut queue = vec![root_node];
-        if let Some(node) = queue.pop() {
-            visible_nodes_n += 1;
+        let mut queue = vec![(1, root_node)];
+        let mut levels = 0;
+        while let Some((level, node)) = queue.pop() {
+            levels = levels.max(level);
             let state = node.ui_state.borrow();
             state
                 .show_left
@@ -41,25 +41,25 @@ pub(super) fn expanded_subtree_dimentions(subtree: &Subtree) -> (f32, f32) {
                 .flatten()
                 .and_then(|key| subtree.nodes.get(key))
                 .into_iter()
-                .for_each(|node| queue.push(node));
+                .for_each(|node| queue.push((level + 1, node)));
             state
                 .show_right
                 .then_some(node.right_child.as_ref())
                 .flatten()
                 .and_then(|key| subtree.nodes.get(key))
                 .into_iter()
-                .for_each(|node| queue.push(node));
+                .for_each(|node| queue.push((level + 1, node)));
         }
-
-        let levels = levels_count(visible_nodes_n);
-        let leaves = leaves_level_count(levels);
+        let leafs = leaves_level_count(levels);
 
         (
-            leaves as f32 * NODE_WIDTH,  // + (leaves - 1) as f32 * HORIZONTAL_MARGIN,
+            leafs as f32 * NODE_WIDTH,   // + (leaves - 1) as f32 * HORIZONTAL_MARGIN,
             levels as f32 * NODE_HEIGHT, // + (levels - 1) as f32 * VERTICAL_MARGIN,
+            levels,
+            leafs,
         )
     } else {
-        (0., 0.)
+        (0., 0., 0, 0)
     }
 }
 
