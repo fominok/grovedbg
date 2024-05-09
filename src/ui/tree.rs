@@ -1,7 +1,5 @@
 //! Tree structure UI module
 
-use std::borrow::Borrow;
-
 use eframe::{
     egui::{self, Id},
     emath::TSTransform,
@@ -157,9 +155,9 @@ impl<'u, 't> TreeDrawer<'u, 't> {
         }
     }
 
-    fn draw_subtree(&mut self, coords: Pos2, subtree_width: f32, subtree_ctx: SubtreeCtx) {
+    fn draw_subtree(&mut self, coords: Pos2, subtree_ctx: SubtreeCtx) {
         if subtree_ctx.subtree().is_expanded() {
-            self.draw_subtree_expanded(coords, subtree_width, subtree_ctx);
+            self.draw_subtree_expanded(coords, subtree_ctx);
         } else {
             self.draw_subtree_collapsed(coords, subtree_ctx);
         }
@@ -167,9 +165,8 @@ impl<'u, 't> TreeDrawer<'u, 't> {
 
     fn draw_subtree_collapsed(&mut self, coords: Pos2, subtree_ctx: SubtreeCtx) {
         let subtree = subtree_ctx.subtree();
-
         let layer_response = egui::Area::new(subtree_ctx.egui_id())
-            .default_pos(coords)
+            .fixed_pos(coords)
             .order(egui::Order::Foreground)
             .show(self.ui.ctx(), |ui| {
                 ui.set_clip_rect(self.transform.inverse() * self.rect);
@@ -334,96 +331,130 @@ impl<'u, 't> TreeDrawer<'u, 't> {
             .set_transform_layer(layer_response.layer_id, self.transform);
     }
 
-    fn draw_subtree_expanded(
-        &mut self,
-        mut coords: Pos2,
-        subtree_width: f32,
-        subtree_ctx: SubtreeCtx,
-    ) {
-        let subtree = subtree_ctx.subtree();
+    fn draw_subtree_expanded(&mut self, coords: Pos2, subtree_ctx: SubtreeCtx) {
+        // let subtree = subtree_ctx.subtree();
 
-        let cluster_roots_iter = subtree_ctx.iter_cluster_roots();
+        // let cluster_roots_iter = subtree_ctx.iter_cluster_roots();
 
-        let width_step = subtree_width
-            / (cluster_roots_iter.len() + subtree.root_node.as_ref().map(|_| 1).unwrap_or(0))
-                as f32;
-        let mut prev_point = None;
+        // let width_step = subtree_width
+        //     / (cluster_roots_iter.len() + subtree.root_node.as_ref().map(|_|
+        // 1).unwrap_or(0))         as f32;
+        // let mut prev_point = None;
 
         // .chain(cluster_roots_iter) TODO figure out what to do with clusters
         subtree_ctx.get_root().into_iter().for_each(|node_ctx| {
             self.draw_subtree_part(coords, node_ctx);
-            coords.x += width_step;
+            // coords.x += width_step;
 
-            let node = node_ctx.node();
+            // let node = node_ctx.node();
 
-            let state = node.ui_state.borrow();
+            // let state = node.ui_state.borrow();
 
-            if let Some(right_point) = prev_point {
-                let layer_response = egui::Area::new(Id::new(("clusters", node_ctx.egui_id())))
-                    .order(egui::Order::Background)
-                    .show(self.ui.ctx(), |ui| {
-                        ui.set_clip_rect(self.transform.inverse() * self.rect);
+            // if let Some(right_point) = prev_point {
+            //     let layer_response = egui::Area::new(Id::new(("clusters",
+            // node_ctx.egui_id())))
+            //         .order(egui::Order::Background)
+            //         .show(self.ui.ctx(), |ui| {
+            //             ui.set_clip_rect(self.transform.inverse() *
+            // self.rect);
 
-                        let painter = ui.painter();
-                        painter.line_segment(
-                            [state.left_sibling_point, right_point],
-                            Stroke {
-                                width: 1.0,
-                                color: Color32::KHAKI,
-                            },
-                        );
-                    })
-                    .response;
-                self.ui
-                    .ctx()
-                    .set_transform_layer(layer_response.layer_id, self.transform);
-            }
+            //             let painter = ui.painter();
+            //             painter.line_segment(
+            //                 [state.left_sibling_point, right_point],
+            //                 Stroke {
+            //                     width: 1.0,
+            //                     color: Color32::KHAKI,
+            //                 },
+            //             );
+            //         })
+            //         .response;
+            //     self.ui
+            //         .ctx()
+            //         .set_transform_layer(layer_response.layer_id,
+            // self.transform); }
 
-            prev_point = Some(state.right_sibling_point);
+            // prev_point = Some(state.right_sibling_point);
         });
     }
 
     pub(crate) fn draw_tree(mut self) {
-        if self.levels.levels_info.is_empty() {
-            return;
-        }
-        let max_width = subtree_block_size(&self.levels.levels_info[self.levels.widest_level_idx])
-            .0
-            * self.levels.levels_info[self.levels.widest_level_idx].n_subtrees as f32
-            / 2.0;
+        self.tree.update_dimensions();
+
+        // if self.levels.levels_info.is_empty() {
+        //     return;
+        // }
+        // let max_width =
+        // subtree_block_size(&self.levels.levels_info[self.levels.widest_level_idx])
+        //     .0
+        //     * self.levels.levels_info[self.levels.widest_level_idx].n_subtrees as f32
+        //     / 2.0;
+
+        // let mut current_level = 0;
+        // let mut idx_on_level = 0;
+
+        // let mut level_subtree_block_size =
+        // subtree_block_size(&self.levels.levels_info[0]);
+        // let mut level_subtree_width =
+        //     max_width / (self.levels.levels_info[0].n_subtrees + 1) as f32;
+
+        // let mut current_pos = Pos2::new(level_subtree_width, 0.0);
 
         let mut current_level = 0;
-        let mut idx_on_level = 0;
-
-        let mut level_subtree_block_size = subtree_block_size(&self.levels.levels_info[0]);
-        let mut level_subtree_width =
-            max_width / (self.levels.levels_info[0].n_subtrees + 1) as f32;
-
-        let mut current_pos = Pos2::new(level_subtree_width, 0.0);
+        let mut current_height = 100.;
+        let mut current_parent = None;
+        let mut current_x_per_parent = 500.;
 
         for subtree_ctx in self
             .tree
             .iter_subtrees()
             .filter(|ctx| ctx.subtree().visible())
         {
-            if current_level != subtree_ctx.path().len() {
-                current_level = subtree_ctx.path().len();
-                idx_on_level = 0;
+            let parent_path = if subtree_ctx.path().len() == 0 {
+                None
+            } else {
+                Some(&subtree_ctx.path()[0..subtree_ctx.path().len() - 1])
+            };
+            if current_parent != parent_path {
+                current_parent = parent_path;
+                if let Some(path) = current_parent {
+                    let path: Path = path.to_vec().into();
+                    let parent_subtree = self.tree.subtrees.get(&path).expect("parent must exist");
+                    current_x_per_parent = parent_subtree.get_subtree_input_point().unwrap().x
+                        - parent_subtree.width() / 2.0;
+                }
+            }
+            if subtree_ctx.path().len() > current_level {
+                current_height += self.tree.levels_dimentions.borrow()[current_level].1
+                    + self.tree.levels_dimentions.borrow()[current_level].0 * 0.05;
+                current_level += 1;
+            }
+            // let (level_width, level_height) =
+            // self.tree.levels_dimentions.bo[subtree_ctx.path().len()];
 
-                level_subtree_block_size =
-                    subtree_block_size(&self.levels.levels_info[current_level]);
-                current_pos.y += level_subtree_block_size.1 + Y_MARGIN;
+            // if current_level != subtree_ctx.path().len() {
+            //     current_level = subtree_ctx.path().len();
+            //     idx_on_level = 0;
 
-                level_subtree_width =
-                    max_width / (self.levels.levels_info[current_level].n_subtrees + 1) as f32;
-                current_pos.x = level_subtree_width;
+            //     level_subtree_block_size =
+            //         subtree_block_size(&self.levels.levels_info[current_level]);
+            //     current_pos.y += level_subtree_block_size.1 + Y_MARGIN;
+
+            //     level_subtree_width =
+            //         max_width / (self.levels.levels_info[current_level].n_subtrees + 1)
+            // as f32;     current_pos.x = level_subtree_width;
+            // }
+
+            if subtree_ctx.path().len() > 0 {
+                current_x_per_parent += subtree_ctx.subtree().width() / 2.0;
+            }
+            self.draw_subtree(Pos2::new(current_x_per_parent, current_height), subtree_ctx);
+            if subtree_ctx.path().len() > 0 {
+                current_x_per_parent += subtree_ctx.subtree().width() / 2.0;
             }
 
-            self.draw_subtree(current_pos, level_subtree_width, subtree_ctx);
+            // current_pos.x += level_subtree_width;
 
-            current_pos.x += level_subtree_width;
-
-            idx_on_level += 1;
+            // idx_on_level += 1;
 
             let root_in = subtree_ctx.subtree().get_subtree_input_point();
             let mut parent_path = subtree_ctx.path().clone();
