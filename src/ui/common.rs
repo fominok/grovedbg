@@ -3,7 +3,7 @@
 use std::fmt::Write;
 
 use eframe::{
-    egui::{self, RichText},
+    egui::{self, Label, Response, RichText, Sense},
     epaint::Color32,
 };
 
@@ -18,7 +18,7 @@ fn bytes_as_slice(bytes: &[u8]) -> String {
         format!("{:?}", bytes)
     } else {
         let mut buf = String::from("[");
-        bytes.iter().for_each(|b| {
+        bytes.iter().take(MAX_BYTES).for_each(|b| {
             let _ = write!(buf, "{b},");
         });
         buf.push_str("...");
@@ -52,27 +52,38 @@ pub(crate) fn binary_label_colored<'a>(
     bytes: &[u8],
     display_variant: &mut DisplayVariant,
     color: Color32,
-) {
+) -> Response {
     let text = bytes_by_display_variant(bytes, &display_variant);
-    ui.collapsing(RichText::new(text).color(color), |ui| {
-        ui.radio_value(display_variant, DisplayVariant::U8, "Integers");
-        ui.radio_value(display_variant, DisplayVariant::String, "UTF-8 String");
-        ui.radio_value(display_variant, DisplayVariant::Hex, "Hex String");
+    display_variant_dropdown(ui, &text, display_variant, color)
+}
+
+fn display_variant_dropdown<'a>(
+    ui: &mut egui::Ui,
+    text: &str,
+    display_variant: &mut DisplayVariant,
+    color: Color32,
+) -> Response {
+    let response = ui.add(Label::new(RichText::new(text).color(color)).sense(Sense::click()));
+    response.context_menu(|menu| {
+        menu.radio_value(display_variant, DisplayVariant::U8, "Integers");
+        menu.radio_value(display_variant, DisplayVariant::String, "UTF-8 String");
+        menu.radio_value(display_variant, DisplayVariant::Hex, "Hex String");
     });
+    response
 }
 
 pub(crate) fn binary_label<'a>(
     ui: &mut egui::Ui,
     bytes: &[u8],
     display_variant: &mut DisplayVariant,
-) {
+) -> Response {
     binary_label_colored(ui, bytes, display_variant, Color32::GRAY)
 }
 
 #[derive(Debug, Default, PartialEq, Clone, Copy)]
 pub(crate) enum DisplayVariant {
-    U8,
     #[default]
+    U8,
     String,
     Hex,
 }
@@ -96,12 +107,9 @@ pub(crate) fn path_label<'a>(
         text.push_str(&bytes_by_display_variant(key, display_variant));
         text.push_str("]");
 
-        let response = ui.collapsing(text, |ui| {
-            ui.radio_value(display_variant, DisplayVariant::U8, "Integers");
-            ui.radio_value(display_variant, DisplayVariant::String, "UTF-8 String");
-            ui.radio_value(display_variant, DisplayVariant::Hex, "Hex String");
-        });
-        response.header_response.on_hover_ui_at_pointer(|hover_ui| {
+        let response = display_variant_dropdown(ui, &text, display_variant, Color32::LIGHT_GRAY);
+
+        response.on_hover_ui_at_pointer(|hover_ui| {
             let mut text = String::from("[");
             let mut iter = path.iter();
             let last = iter.next_back();

@@ -2,18 +2,16 @@ use eframe::{
     egui,
     epaint::{Color32, Stroke},
 };
+use tokio::sync::mpsc::Sender;
 
 use super::common::{binary_label, bytes_by_display_variant, path_label};
-use crate::model::{Element, KeySlice, Node, Subtree};
+use crate::{
+    fetch::Message,
+    model::{Element, Node, NodeCtx},
+};
 
-pub(crate) fn draw_node<'a>(
-    ui: &mut egui::Ui,
-    subtree: &'a Subtree,
-    key: KeySlice,
-) -> Option<&'a Node> {
-    let Some(node) = subtree.nodes.get(key) else {
-        return None;
-    };
+pub(crate) fn draw_node<'a>(ui: &mut egui::Ui, sender: &Sender<Message>, node_ctx: NodeCtx<'a>) {
+    let (node, _, key) = node_ctx.split();
 
     let mut stroke = Stroke::default();
     stroke.color = element_to_color(&node.element);
@@ -26,20 +24,63 @@ pub(crate) fn draw_node<'a>(
         .fill(Color32::BLACK)
         .show(ui, |ui| {
             ui.style_mut().wrap = Some(false);
+
+            ui.collapsing("🖧", |menu| {
+                if menu.button("Collapse").clicked() {
+                    node_ctx.subtree().set_collapsed();
+                }
+            });
+
             binary_label(ui, key, &mut node.ui_state.borrow_mut().key_display_variant);
             draw_element(ui, &node);
-        });
 
-    Some(node)
+            ui.horizontal(|footer| {
+                if footer
+                    .add_enabled(node.left_child.is_some(), egui::Button::new("⬅"))
+                    .clicked()
+                {
+                    node_ctx.set_left_visible();
+                    sender.blocking_send(Message::FetchNode {
+                        path: node_ctx.path().clone(),
+                        key: node_ctx
+                            .node()
+                            .left_child
+                            .as_ref()
+                            .expect("checked above")
+                            .clone(),
+                    });
+                }
+                footer.label("|");
+                if footer
+                    .add_enabled(node.right_child.is_some(), egui::Button::new("➡"))
+                    .clicked()
+                {
+                    node_ctx.set_right_visible();
+
+                    sender.blocking_send(Message::FetchNode {
+                        path: node_ctx.path().clone(),
+                        key: node_ctx
+                            .node()
+                            .right_child
+                            .as_ref()
+                            .expect("checked above")
+                            .clone(),
+                    });
+                }
+            });
+        })
+        .response;
 }
 
 pub(crate) fn draw_element(ui: &mut egui::Ui, node: &Node) {
     match &node.element {
-        Element::Item { value } => binary_label(
-            ui,
-            value,
-            &mut node.ui_state.borrow_mut().item_display_variant,
-        ),
+        Element::Item { value } => {
+            binary_label(
+                ui,
+                value,
+                &mut node.ui_state.borrow_mut().item_display_variant,
+            );
+        }
         Element::SumItem { value } => {
             ui.label(format!("Value: {value}"));
         }
