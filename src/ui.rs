@@ -1,6 +1,5 @@
 mod common;
 mod node;
-mod subtree;
 mod tree;
 
 pub(crate) use common::DisplayVariant;

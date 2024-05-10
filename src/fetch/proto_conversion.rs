@@ -2,12 +2,11 @@
 use std::borrow::Cow;
 
 use grovedbg_grpc::{
-    grove_dbg_client::GroveDbgClient, AbsolutePathReference, CousinReference, FetchRequest, Item,
-    RemovedCousinReference, SiblingReference, Subtree, SumItem, Sumtree,
-    UpstreamFromElementHeightReference, UpstreamRootHeightReference,
+    AbsolutePathReference, CousinReference, Item, RemovedCousinReference, SiblingReference,
+    Subtree, SumItem, Sumtree, UpstreamFromElementHeightReference, UpstreamRootHeightReference,
 };
 
-use crate::model::{Element, Node, Tree};
+use crate::model::{Element, Node};
 
 #[derive(Debug, thiserror::Error)]
 #[error("Computed reference has no key")]

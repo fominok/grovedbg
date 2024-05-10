@@ -15,15 +15,6 @@ use crate::{
     ui::{draw_legend, TreeDrawer},
 };
 
-// fn get_tree() -> Tree {
-//     tokio::runtime::Runtime::new()
-//         .unwrap()
-//         .block_on(async move {
-//             let mut client = GroveDbgClient::connect("http://[::1]:10000").await.unwrap();
-//             fetch::fetch_root(&mut client).await.unwrap()
-//         })
-// }
-
 fn start_message_processing(receiver: Receiver<Message>, tree: Arc<Mutex<Tree>>) {
     tokio::runtime::Runtime::new()
         .unwrap()

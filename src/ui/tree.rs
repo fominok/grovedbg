@@ -1,7 +1,7 @@
 //! Tree structure UI module
 
 use eframe::{
-    egui::{self, accesskit::Node, Id},
+    egui::{self, Id},
     emath::TSTransform,
     epaint::{Color32, Pos2, Rect, Stroke},
 };
@@ -13,27 +13,13 @@ use super::{
 };
 use crate::{
     fetch::Message,
-    model::{Element, Key, KeySlice, LevelInfo, LevelsInfo, NodeCtx, Path, SubtreeCtx, Tree},
+    model::{
+        alignment::{COLLAPSED_SUBTREE_WIDTH, NODE_HEIGHT},
+        Element, Key, KeySlice, NodeCtx, Path, SubtreeCtx, Tree,
+    },
 };
 
-const NODE_WIDTH: f32 = 200.0;
-const NODE_HEIGHT: f32 = 30.0;
-const X_MARGIN: f32 = 100.0;
-const Y_MARGIN: f32 = 200.0;
 const KV_PER_PAGE: usize = 10;
-
-fn subtree_block_size(level_info: &LevelInfo) -> (f32, f32) {
-    if level_info.max_subtree_size == 0 {
-        return (0.0, 0.0);
-    }
-    let levels = level_info.max_subtree_size.ilog2() + 1;
-    let leaves_level_width = 2u32.pow(levels - 1) * level_info.max_clusters as u32;
-
-    (
-        (X_MARGIN + NODE_WIDTH) * leaves_level_width as f32,
-        (Y_MARGIN + NODE_HEIGHT) * levels as f32,
-    )
-}
 
 pub(crate) struct TreeDrawer<'u, 't> {
     ui: &'u mut egui::Ui,
@@ -41,7 +27,6 @@ pub(crate) struct TreeDrawer<'u, 't> {
     rect: Rect,
     references: Vec<(Pos2, Path, Key)>,
     tree: &'t Tree,
-    levels: LevelsInfo,
     sender: &'t Sender<Message>,
 }
 
@@ -59,7 +44,6 @@ impl<'u, 't> TreeDrawer<'u, 't> {
             rect,
             references: vec![],
             tree,
-            levels: tree.levels(),
             sender,
         }
     }
@@ -142,7 +126,6 @@ impl<'u, 't> TreeDrawer<'u, 't> {
                         ));
                     }
 
-                    let state = node.ui_state.borrow();
                     next_level_nodes.push((Some(key), node.left_child.as_deref()));
                     next_level_nodes.push((Some(key), node.right_child.as_deref()));
                 }
@@ -155,7 +138,7 @@ impl<'u, 't> TreeDrawer<'u, 't> {
                 break;
             }
 
-            coords.y += NODE_HEIGHT + Y_MARGIN;
+            coords.y += NODE_HEIGHT;
             std::mem::swap(&mut current_level_nodes, &mut next_level_nodes);
             level += 1;
         }
@@ -199,7 +182,7 @@ impl<'u, 't> TreeDrawer<'u, 't> {
                             if menu.button("Fetch all").clicked() {
                                 if let Some(key) = &subtree.root_node {
                                     // TODO error handling
-                                    self.sender.blocking_send(Message::FetchBranch {
+                                    let _ = self.sender.blocking_send(Message::FetchBranch {
                                         path: subtree_ctx.path().clone(),
                                         key: key.clone(),
                                     });
@@ -209,7 +192,7 @@ impl<'u, 't> TreeDrawer<'u, 't> {
                             if let Some(key) = &subtree.root_node {
                                 if menu.button("Fetch root").clicked() {
                                     // TODO error handling
-                                    self.sender.blocking_send(Message::FetchNode {
+                                    let _ = self.sender.blocking_send(Message::FetchNode {
                                         path: subtree_ctx.path().clone(),
                                         key: key.clone(),
                                     });
@@ -217,18 +200,16 @@ impl<'u, 't> TreeDrawer<'u, 't> {
                             }
 
                             if menu.button("Unload").clicked() {
-                                if let Some(key) = &subtree.root_node {
-                                    // TODO error handling
-                                    self.sender.blocking_send(Message::UnloadSubtree {
-                                        path: subtree_ctx.path().clone(),
-                                    });
-                                }
+                                // TODO error handling
+                                let _ = self.sender.blocking_send(Message::UnloadSubtree {
+                                    path: subtree_ctx.path().clone(),
+                                });
                             }
                         });
 
                         ui.allocate_ui(
                             egui::Vec2 {
-                                x: NODE_WIDTH,
+                                x: COLLAPSED_SUBTREE_WIDTH,
                                 y: 10.0,
                             },
                             |ui| ui.separator(),
@@ -242,7 +223,7 @@ impl<'u, 't> TreeDrawer<'u, 't> {
 
                         ui.allocate_ui(
                             egui::Vec2 {
-                                x: NODE_WIDTH,
+                                x: COLLAPSED_SUBTREE_WIDTH,
                                 y: 10.0,
                             },
                             |ui| ui.separator(),
@@ -299,7 +280,7 @@ impl<'u, 't> TreeDrawer<'u, 't> {
 
                             ui.allocate_ui(
                                 egui::Vec2 {
-                                    x: NODE_WIDTH,
+                                    x: COLLAPSED_SUBTREE_WIDTH,
                                     y: 10.0,
                                 },
                                 |ui| ui.separator(),
@@ -338,72 +319,13 @@ impl<'u, 't> TreeDrawer<'u, 't> {
     }
 
     fn draw_subtree_expanded(&mut self, coords: Pos2, subtree_ctx: SubtreeCtx) {
-        // let subtree = subtree_ctx.subtree();
-
-        // let cluster_roots_iter = subtree_ctx.iter_cluster_roots();
-
-        // let width_step = subtree_width
-        //     / (cluster_roots_iter.len() + subtree.root_node.as_ref().map(|_|
-        // 1).unwrap_or(0))         as f32;
-        // let mut prev_point = None;
-
-        // .chain(cluster_roots_iter) TODO figure out what to do with clusters
         subtree_ctx.get_root().into_iter().for_each(|node_ctx| {
             self.draw_subtree_part(coords, node_ctx);
-            // coords.x += width_step;
-
-            // let node = node_ctx.node();
-
-            // let state = node.ui_state.borrow();
-
-            // if let Some(right_point) = prev_point {
-            //     let layer_response = egui::Area::new(Id::new(("clusters",
-            // node_ctx.egui_id())))
-            //         .order(egui::Order::Background)
-            //         .show(self.ui.ctx(), |ui| {
-            //             ui.set_clip_rect(self.transform.inverse() *
-            // self.rect);
-
-            //             let painter = ui.painter();
-            //             painter.line_segment(
-            //                 [state.left_sibling_point, right_point],
-            //                 Stroke {
-            //                     width: 1.0,
-            //                     color: Color32::KHAKI,
-            //                 },
-            //             );
-            //         })
-            //         .response;
-            //     self.ui
-            //         .ctx()
-            //         .set_transform_layer(layer_response.layer_id,
-            // self.transform); }
-
-            // prev_point = Some(state.right_sibling_point);
         });
     }
 
     pub(crate) fn draw_tree(mut self) {
         self.tree.update_dimensions();
-
-        // if self.levels.levels_info.is_empty() {
-        //     return;
-        // }
-        // let max_width =
-        // subtree_block_size(&self.levels.levels_info[self.levels.widest_level_idx])
-        //     .0
-        //     * self.levels.levels_info[self.levels.widest_level_idx].n_subtrees as f32
-        //     / 2.0;
-
-        // let mut current_level = 0;
-        // let mut idx_on_level = 0;
-
-        // let mut level_subtree_block_size =
-        // subtree_block_size(&self.levels.levels_info[0]);
-        // let mut level_subtree_width =
-        //     max_width / (self.levels.levels_info[0].n_subtrees + 1) as f32;
-
-        // let mut current_pos = Pos2::new(level_subtree_width, 0.0);
 
         let mut current_level = 0;
         let mut current_height = 100.;
@@ -434,21 +356,6 @@ impl<'u, 't> TreeDrawer<'u, 't> {
                     + self.tree.levels_dimentions.borrow()[current_level].0 * 0.05;
                 current_level += 1;
             }
-            // let (level_width, level_height) =
-            // self.tree.levels_dimentions.bo[subtree_ctx.path().len()];
-
-            // if current_level != subtree_ctx.path().len() {
-            //     current_level = subtree_ctx.path().len();
-            //     idx_on_level = 0;
-
-            //     level_subtree_block_size =
-            //         subtree_block_size(&self.levels.levels_info[current_level]);
-            //     current_pos.y += level_subtree_block_size.1 + Y_MARGIN;
-
-            //     level_subtree_width =
-            //         max_width / (self.levels.levels_info[current_level].n_subtrees + 1)
-            // as f32;     current_pos.x = level_subtree_width;
-            // }
 
             if subtree_ctx.path().len() > 0 {
                 current_x_per_parent += subtree_ctx.subtree().width() / 2.0;
@@ -457,10 +364,6 @@ impl<'u, 't> TreeDrawer<'u, 't> {
             if subtree_ctx.path().len() > 0 {
                 current_x_per_parent += subtree_ctx.subtree().width() / 2.0;
             }
-
-            // current_pos.x += level_subtree_width;
-
-            // idx_on_level += 1;
 
             let root_in = subtree_ctx.subtree().get_subtree_input_point();
             let mut parent_path = subtree_ctx.path().clone();

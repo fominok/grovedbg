@@ -1,7 +1,6 @@
-mod alignment;
+pub(crate) mod alignment;
 
 use std::{
-    borrow::{Borrow, BorrowMut},
     cell::{RefCell, RefMut},
     cmp,
     collections::{BTreeMap, BTreeSet, HashSet},
@@ -60,20 +59,6 @@ impl DerefMut for Path {
     }
 }
 
-/// General information about a level of subtrees for drawing purposes
-#[derive(Debug, PartialEq, Default)]
-pub(crate) struct LevelInfo {
-    pub(crate) n_subtrees: usize,
-    pub(crate) max_subtree_size: usize,
-    pub(crate) max_clusters: usize,
-}
-
-#[derive(Debug, PartialEq, Default)]
-pub(crate) struct LevelsInfo {
-    pub(crate) levels_info: Vec<LevelInfo>,
-    pub(crate) widest_level_idx: usize,
-}
-
 #[derive(Clone, Copy)]
 struct SetVisibility<'a> {
     tree: &'a Tree,
@@ -81,13 +66,6 @@ struct SetVisibility<'a> {
 }
 
 impl<'a> SetVisibility<'a> {
-    pub(crate) fn new<'b>(tree: &'a Tree, ctx: &'b SubtreeCtx<'a>) -> Self {
-        SetVisibility {
-            tree,
-            path: ctx.path(),
-        }
-    }
-
     pub(crate) fn set_visible(&self, key: KeySlice, visible: bool) {
         let mut path = self.path.clone();
         path.push(key.to_owned());
@@ -169,47 +147,6 @@ impl Tree {
             subtree,
             set_child_visibility: SetVisibility { tree: self, path },
         })
-    }
-
-    /// Returns a vector that represents how many subtrees are on each level
-    pub(crate) fn levels(&self) -> LevelsInfo {
-        let (levels_info, widest_level_idx) = self.subtrees.iter().fold(
-            (Vec::new(), 0),
-            |(mut levels, max_level_idx), (path, subtree)| {
-                let level = path.len();
-                if levels.len() <= level {
-                    levels.push(LevelInfo::default());
-                }
-                levels[level].n_subtrees += 1;
-                levels[level].max_subtree_size =
-                    cmp::max(levels[level].max_subtree_size, subtree.nodes.len());
-                levels[level].max_clusters = cmp::max(
-                    levels[level].max_clusters,
-                    subtree.cluster_roots.len()
-                        + subtree.root_node.as_ref().map(|_| 1).unwrap_or(0),
-                );
-
-                // TODO: omg
-                let new_level_idx = if levels[level].max_clusters
-                    * levels[level].max_subtree_size
-                    * levels[level].n_subtrees
-                    > levels[max_level_idx].max_clusters
-                        * levels[max_level_idx].max_subtree_size
-                        * levels[max_level_idx].n_subtrees
-                {
-                    level
-                } else {
-                    max_level_idx
-                };
-
-                (levels, new_level_idx)
-            },
-        );
-
-        LevelsInfo {
-            levels_info,
-            widest_level_idx,
-        }
     }
 
     pub(crate) fn get_node(&self, path: &Path, key: KeySlice) -> Option<&Node> {
