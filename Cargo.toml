@@ -8,6 +8,7 @@ edition = "2021"
 [dependencies]
 eframe = "0.27.2"
 grovedbg-grpc = { git = "https://github.com/dashpay/grovedb", branch = "grove-dbg" }
+grovedb-path = { git = "https://github.com/dashpay/grovedb", branch = "grove-dbg" }
 hex = "0.4.3"
 strum = { version = "0.26.2", features = ["strum_macros", "derive"] }
 thiserror = "1.0.58"

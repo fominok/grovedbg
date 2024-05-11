@@ -4,71 +4,62 @@ use std::{
     cell::{RefCell, RefMut},
     cmp,
     collections::{BTreeMap, BTreeSet, HashSet},
-    ops::{Deref, DerefMut},
 };
 
 use eframe::{egui, epaint::Pos2};
+use grovedb_path::{SubtreePath, SubtreePathBuilder};
 
 use self::alignment::{
     expanded_subtree_dimentions, COLLAPSED_SUBTREE_HEIGHT, COLLAPSED_SUBTREE_WIDTH,
 };
 use crate::ui::DisplayVariant;
 
-#[derive(Debug, PartialEq, Eq, Clone, Default, Hash)]
-pub(crate) struct Path(Vec<Vec<u8>>);
+#[derive(Debug, PartialEq, Eq, Hash)]
+pub(crate) struct Path<'b>(pub grovedb_path::SubtreePathBuilder<'b, Vec<u8>>);
+
+impl<'b> From<grovedb_path::SubtreePathBuilder<'b, Vec<u8>>> for Path<'b> {
+    fn from(value: grovedb_path::SubtreePathBuilder<'b, Vec<u8>>) -> Self {
+        Path(value)
+    }
+}
 
 pub(crate) type Key = Vec<u8>;
 pub(crate) type KeySlice<'a> = &'a [u8];
 
-impl PartialOrd for Path {
+impl<'b> PartialOrd for Path<'b> {
     fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
         self.0
             .len()
             .cmp(&other.0.len())
-            .then_with(|| self.0.cmp(&other.0))
+            .then_with(|| {
+                self.0.reverse_iter().zip(other.0.reverse_iter()).fold(
+                    cmp::Ordering::Equal,
+                    |acc, (a, b)| match a.cmp(b) {
+                        cmp::Ordering::Equal => acc,
+                        x => x,
+                    },
+                )
+            })
             .into()
     }
 }
 
-impl Ord for Path {
+impl<'b> Ord for Path<'b> {
     fn cmp(&self, other: &Self) -> cmp::Ordering {
-        self.0
-            .len()
-            .cmp(&other.0.len())
-            .then_with(|| self.0.cmp(&other.0))
-    }
-}
-
-impl From<Vec<Vec<u8>>> for Path {
-    fn from(value: Vec<Vec<u8>>) -> Self {
-        Self(value)
-    }
-}
-
-impl Deref for Path {
-    type Target = Vec<Vec<u8>>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl DerefMut for Path {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
+        self.partial_cmp(other).expect("ordering is always defined")
     }
 }
 
 #[derive(Clone, Copy)]
 struct SetVisibility<'a> {
     tree: &'a Tree,
-    path: &'a Path,
+    path: &'a Path<'static>,
 }
 
 impl<'a> SetVisibility<'a> {
     pub(crate) fn set_visible(&self, key: KeySlice, visible: bool) {
-        let mut path = self.path.clone();
-        path.push(key.to_owned());
+        let path: Path = self.path.0.derive_owned_with_child(key).into();
+        let length = path.0.len();
         if let Some(subtree) = self.tree.get_subtree(&path) {
             subtree.subtree().set_visible(visible);
 
@@ -76,7 +67,17 @@ impl<'a> SetVisibility<'a> {
                 self.tree
                     .subtrees
                     .range::<Path, _>(&path..)
-                    .filter(|(p, _)| p.starts_with(&path))
+                    .filter(|(p, _)| {
+                        let mut cut_p: SubtreePath<'_, _> = (&p.0).into();
+                        while cut_p.len() > length {
+                            if let Some((p, _)) = cut_p.derive_parent() {
+                                cut_p = p;
+                            } else {
+                                break;
+                            }
+                        }
+                        cut_p == path.0
+                    })
                     .for_each(|(_, s)| {
                         s.set_visible(false);
                     });
@@ -85,8 +86,7 @@ impl<'a> SetVisibility<'a> {
     }
 
     pub(crate) fn visible(&self, key: KeySlice) -> bool {
-        let mut path = self.path.clone();
-        path.push(key.to_owned());
+        let path: Path = self.path.0.derive_owned_with_child(key).into();
         self.tree
             .get_subtree(&path)
             .map(|subtree| subtree.subtree().visible())
@@ -97,7 +97,7 @@ impl<'a> SetVisibility<'a> {
 /// Structure that holds the currently known state of GroveDB.
 #[derive(Debug, Default)]
 pub(crate) struct Tree {
-    pub(crate) subtrees: BTreeMap<Path, Subtree>,
+    pub(crate) subtrees: BTreeMap<Path<'static>, Subtree>,
     pub(crate) levels_dimentions: RefCell<Vec<(f32, f32)>>,
 }
 
@@ -114,22 +114,23 @@ impl Tree {
 
             subtree.ui_state.borrow_mut().children_width = 0.;
             let mut levels_height = self.levels_dimentions.borrow_mut();
-            if levels_height.len() < path.len() + 1 {
+            if levels_height.len() < path.0.len() + 1 {
                 levels_height.push(Default::default());
             }
-            levels_height[path.len()].0 = 0.0;
+            levels_height[path.0.len()].0 = 0.0;
 
             let (width, height) = subtree.update_base_dimensions();
             // Propagate width to parent subtrees
-            for depth in (0..path.len()).rev() {
-                let parent_path = &path[0..depth].to_vec().into();
-                if let Some(parent) = self.subtrees.get(&parent_path) {
+            let mut current_parent_path: SubtreePath<_> = (&path.0).into();
+            while let Some((parent_path, _)) = current_parent_path.derive_parent() {
+                if let Some(parent) = self.subtrees.get(&Path((&parent_path).into())) {
                     parent.ui_state.borrow_mut().children_width += width;
                     levels_height[parent_path.len()].0 += width;
                 }
+                current_parent_path = parent_path;
             }
 
-            levels_height[path.len()].1 = levels_height[path.len()].1.max(height);
+            levels_height[path.0.len()].1 = levels_height[path.0.len()].1.max(height);
         }
     }
 
