@@ -97,16 +97,14 @@ impl<'u, 't> TreeDrawer<'u, 't> {
         current_level_nodes.push((None, Some(node_ctx.key())));
 
         let max_width = node_ctx.subtree().width();
-        let x_base = coords.x - max_width / 2.0;
+        let x_base = coords.x - max_width / 2.;
 
         let unit = max_width / leafs as f32;
 
         while level <= levels {
-            if level > 0 {
-                coords.x = x_base;
-                if level + 1 < levels {
-                    coords.x += 2u32.pow(levels - level - 2) as f32 * unit;
-                }
+            coords.x = x_base;
+            if level < levels {
+                coords.x += 2u32.pow(levels - level - 1) as f32 * unit;
             }
 
             for (parent_key, node_key) in current_level_nodes.drain(..) {
@@ -129,9 +127,7 @@ impl<'u, 't> TreeDrawer<'u, 't> {
                     next_level_nodes.push((Some(key), node.left_child.as_deref()));
                     next_level_nodes.push((Some(key), node.right_child.as_deref()));
                 }
-                if level > 0 {
-                    coords.x += 2u32.pow(levels - level) as f32 * unit;
-                }
+                coords.x += 2u32.pow(levels - level) as f32 * unit;
             }
 
             if next_level_nodes.is_empty() {
@@ -209,7 +205,7 @@ impl<'u, 't> TreeDrawer<'u, 't> {
 
                         ui.allocate_ui(
                             egui::Vec2 {
-                                x: COLLAPSED_SUBTREE_WIDTH,
+                                x: COLLAPSED_SUBTREE_WIDTH - 50.,
                                 y: 10.0,
                             },
                             |ui| ui.separator(),
@@ -223,7 +219,7 @@ impl<'u, 't> TreeDrawer<'u, 't> {
 
                         ui.allocate_ui(
                             egui::Vec2 {
-                                x: COLLAPSED_SUBTREE_WIDTH,
+                                x: COLLAPSED_SUBTREE_WIDTH - 50.,
                                 y: 10.0,
                             },
                             |ui| ui.separator(),
@@ -280,7 +276,7 @@ impl<'u, 't> TreeDrawer<'u, 't> {
 
                             ui.allocate_ui(
                                 egui::Vec2 {
-                                    x: COLLAPSED_SUBTREE_WIDTH,
+                                    x: COLLAPSED_SUBTREE_WIDTH - 50.,
                                     y: 10.0,
                                 },
                                 |ui| ui.separator(),
@@ -348,7 +344,8 @@ impl<'u, 't> TreeDrawer<'u, 't> {
                     let path: Path = path.to_vec().into();
                     let parent_subtree = self.tree.subtrees.get(&path).expect("parent must exist");
                     current_x_per_parent = parent_subtree.get_subtree_input_point().unwrap().x
-                        - parent_subtree.width() / 2.0;
+                        - parent_subtree.width() / 2.0
+                        - COLLAPSED_SUBTREE_WIDTH / 2.0;
                 }
             }
             if subtree_ctx.path().len() > current_level {
