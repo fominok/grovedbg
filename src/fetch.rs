@@ -27,13 +27,18 @@ pub(crate) enum FetchError {
     // TransportError(#[from] grovedbg_grpc::tonic::Status),
 }
 
+fn base_url() -> String {
+    web_sys::window().unwrap().location().origin().unwrap()
+}
+
 pub(crate) async fn process_messages(mut receiver: Receiver<Message>, tree: Arc<Mutex<Tree>>) {
     let client = Client::new();
+
     while let Some(message) = receiver.recv().await {
         match message {
             Message::FetchRoot => {
                 let Some(root_node) = client
-                    .get("http://localhost:10000/fetch_root_node")
+                    .post(format!("{}/fetch_root_node", base_url()))
                     .json(&RootFetchRequest)
                     .send()
                     .await
@@ -55,7 +60,7 @@ pub(crate) async fn process_messages(mut receiver: Receiver<Message>, tree: Arc<
             }
             Message::FetchNode { path, key } => {
                 let Some(node_update) = client
-                    .get("http://localhost:10000/fetch_node")
+                    .post(format!("{}/fetch_node", base_url()))
                     .json(&NodeFetchRequest {
                         path: path.0.clone(),
                         key: key.clone(),
@@ -80,7 +85,7 @@ pub(crate) async fn process_messages(mut receiver: Receiver<Message>, tree: Arc<
 
                 while let Some(node_key) = queue.pop_front() {
                     let Some(node_update) = client
-                        .get("http://localhost:10000/fetch_node")
+                        .post(format!("{}/fetch_node", base_url()))
                         .json(&NodeFetchRequest {
                             path: path.0.clone(),
                             key: node_key.clone(),
