@@ -8,35 +8,66 @@ use std::sync::{Arc, Mutex};
 
 use eframe::egui::{self, emath::TSTransform};
 use fetch::Message;
-use tokio::sync::mpsc::{channel, Receiver};
+use tokio::sync::mpsc::{channel, Receiver, Sender};
 
 use crate::{
     model::Tree,
     ui::{draw_legend, TreeDrawer},
 };
 
-fn start_message_processing(receiver: Receiver<Message>, tree: Arc<Mutex<Tree>>) {
-    tokio::runtime::Runtime::new()
-        .unwrap()
-        .block_on(fetch::process_messages(receiver, tree))
-}
+#[cfg(not(target_arch = "wasm32"))]
+fn main() {}
 
-fn main() -> eframe::Result<()> {
-    tracing_subscriber::fmt::init();
+#[cfg(target_arch = "wasm32")]
+fn main() {
+    eframe::WebLogger::init(log::LevelFilter::Debug).ok();
 
-    let mut transform = TSTransform::default();
-
-    let options = eframe::NativeOptions::default();
-
-    let tree = Arc::new(Mutex::new(Tree::new()));
+    let web_options = eframe::WebOptions::default();
 
     let (sender, receiver) = channel(10);
+    let tree: Arc<Mutex<Tree>> = Default::default();
+
+    let t = Arc::clone(&tree);
+    wasm_bindgen_futures::spawn_local(async move {
+        fetch::process_messages(receiver, t).await;
+    });
+
     sender.blocking_send(Message::FetchRoot).unwrap();
 
-    let tree_arc = Arc::clone(&tree);
-    std::thread::spawn(|| start_message_processing(receiver, tree_arc));
+    wasm_bindgen_futures::spawn_local(async {
+        eframe::WebRunner::new()
+            .start(
+                "the_canvas_id", // hardcode it
+                web_options,
+                Box::new(move |cc| Box::new(App::new(cc, tree, sender))),
+            )
+            .await
+            .expect("failed to start eframe");
+    });
+}
 
-    eframe::run_simple_native("GroveDB Visualizer", options, move |ctx, _frame| {
+struct App {
+    transform: TSTransform,
+    tree: Arc<Mutex<Tree>>,
+    sender: Sender<Message>,
+}
+
+impl App {
+    fn new(
+        cc: &eframe::CreationContext<'_>,
+        tree: Arc<Mutex<Tree>>,
+        sender: Sender<Message>,
+    ) -> Self {
+        App {
+            transform: Default::default(),
+            tree,
+            sender,
+        }
+    }
+}
+
+impl eframe::App for App {
+    fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.label("GroveDB Visualizer");
             ui.separator();
@@ -46,16 +77,16 @@ fn main() -> eframe::Result<()> {
             let response = ui.interact(rect, id, egui::Sense::click_and_drag());
             // Allow dragging the background as well.
             if response.dragged() {
-                transform.translation += response.drag_delta();
+                self.transform.translation += response.drag_delta();
             }
 
             // Plot-like reset
             if response.double_clicked() {
-                transform = TSTransform::default();
+                self.transform = TSTransform::default();
             }
 
             let local_transform =
-                TSTransform::from_translation(ui.min_rect().left_top().to_vec2()) * transform;
+                TSTransform::from_translation(ui.min_rect().left_top().to_vec2()) * self.transform;
 
             if let Some(pointer) = ui.ctx().input(|i| i.pointer.hover_pos()) {
                 // Note: doesn't catch zooming / panning if a button in this PanZoom container
@@ -66,23 +97,23 @@ fn main() -> eframe::Result<()> {
                     let pan_delta = ui.ctx().input(|i| i.smooth_scroll_delta);
 
                     // Zoom in on pointer:
-                    transform = transform
+                    self.transform = self.transform
                         * TSTransform::from_translation(pointer_in_layer.to_vec2())
                         * TSTransform::from_scaling(zoom_delta)
                         * TSTransform::from_translation(-pointer_in_layer.to_vec2());
 
                     // Pan:
-                    transform = TSTransform::from_translation(pan_delta) * transform;
+                    self.transform = TSTransform::from_translation(pan_delta) * self.transform;
                 }
             }
 
             {
-                let lock = tree.lock().unwrap();
-                let drawer = TreeDrawer::new(ui, transform, rect, &lock, &sender);
+                let lock = self.tree.lock().unwrap();
+                let drawer = TreeDrawer::new(ui, self.transform, rect, &lock, &self.sender);
                 drawer.draw_tree();
             }
 
             draw_legend(ui);
         });
-    })
+    }
 }

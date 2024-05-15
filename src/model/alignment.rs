@@ -2,8 +2,8 @@
 
 use super::Subtree;
 
-const NODE_WIDTH: f32 = 140.;
-pub(crate) const NODE_HEIGHT: f32 = 100.;
+const NODE_WIDTH: f32 = 150.;
+pub(crate) const NODE_HEIGHT: f32 = 200.;
 pub(crate) const COLLAPSED_SUBTREE_WIDTH: f32 = 400.;
 pub(crate) const COLLAPSED_SUBTREE_HEIGHT: f32 = 600.;
 

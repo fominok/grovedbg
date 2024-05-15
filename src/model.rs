@@ -15,7 +15,7 @@ use self::alignment::{
 use crate::ui::DisplayVariant;
 
 #[derive(Debug, PartialEq, Eq, Clone, Default, Hash)]
-pub(crate) struct Path(Vec<Vec<u8>>);
+pub(crate) struct Path(pub Vec<Vec<u8>>);
 
 pub(crate) type Key = Vec<u8>;
 pub(crate) type KeySlice<'a> = &'a [u8];
