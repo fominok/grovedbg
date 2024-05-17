@@ -6,7 +6,7 @@ mod ui;
 
 use std::sync::{Arc, Mutex};
 
-use eframe::egui::{self, emath::TSTransform};
+use eframe::egui::{self, emath::TSTransform, Visuals};
 use fetch::Message;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 
@@ -69,6 +69,8 @@ impl App {
 impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         egui::CentralPanel::default().show(ctx, |ui| {
+            ctx.set_visuals(Visuals::dark());
+
             ui.label("GroveDB Visualizer");
             ui.separator();
 

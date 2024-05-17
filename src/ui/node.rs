@@ -32,7 +32,7 @@ pub(crate) fn draw_node<'a>(ui: &mut egui::Ui, sender: &Sender<Message>, node_ct
             });
 
             binary_label(ui, key, &mut node.ui_state.borrow_mut().key_display_variant);
-            draw_element(ui, &node);
+            draw_element(ui, node_ctx);
 
             ui.horizontal(|footer| {
                 if footer
@@ -72,7 +72,8 @@ pub(crate) fn draw_node<'a>(ui: &mut egui::Ui, sender: &Sender<Message>, node_ct
         .response;
 }
 
-pub(crate) fn draw_element(ui: &mut egui::Ui, node: &Node) {
+pub(crate) fn draw_element(ui: &mut egui::Ui, node_ctx: NodeCtx) {
+    let node = node_ctx.node();
     match &node.element {
         Element::Item { value } => {
             binary_label(
@@ -99,12 +100,33 @@ pub(crate) fn draw_element(ui: &mut egui::Ui, node: &Node) {
             });
         }
         Element::Sumtree { sum, .. } => {
+            let subtree_ctx = node_ctx.subtree_ctx();
+            let prev_visibility = subtree_ctx.is_child_visible(node_ctx.key());
+            let mut visibility = prev_visibility;
+            ui.checkbox(&mut visibility, "");
+            if prev_visibility != visibility {
+                subtree_ctx.set_child_visibility(node_ctx.key(), visibility);
+            }
             ui.label(format!("Sum: {sum}"));
         }
         Element::Subtree { .. } => {
+            let subtree_ctx = node_ctx.subtree_ctx();
+            let prev_visibility = subtree_ctx.is_child_visible(node_ctx.key());
+            let mut visibility = prev_visibility;
+            ui.checkbox(&mut visibility, "");
+            if prev_visibility != visibility {
+                subtree_ctx.set_child_visibility(node_ctx.key(), visibility);
+            }
             ui.label("Subtree");
         }
         Element::SubtreePlaceholder => {
+            let subtree_ctx = node_ctx.subtree_ctx();
+            let prev_visibility = subtree_ctx.is_child_visible(node_ctx.key());
+            let mut visibility = prev_visibility;
+            ui.checkbox(&mut visibility, "");
+            if prev_visibility != visibility {
+                subtree_ctx.set_child_visibility(node_ctx.key(), visibility);
+            }
             ui.label("Subtree");
         }
     }

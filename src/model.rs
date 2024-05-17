@@ -580,13 +580,22 @@ impl<'a> SubtreeCtx<'a> {
         self.path
     }
 
-    pub(crate) fn iter_cluster_roots(&self) -> impl ExactSizeIterator<Item = NodeCtx> {
-        self.subtree.cluster_roots.iter().map(|key| NodeCtx {
-            node: self
-                .subtree
-                .nodes
-                .get(key)
-                .expect("cluster roots and nodes are in sync"),
+    // pub(crate) fn iter_cluster_roots(&self) -> impl ExactSizeIterator<Item =
+    // NodeCtx> {     self.subtree.cluster_roots.iter().map(|key| NodeCtx {
+    //         node: self
+    //             .subtree
+    //             .nodes
+    //             .get(key)
+    //             .expect("cluster roots and nodes are in sync"),
+    //         path: self.path,
+    //         key,
+    //         subtree_ctx: self.clone(),
+    //     })
+    // }
+
+    pub(crate) fn iter_nodes(&self) -> impl ExactSizeIterator<Item = NodeCtx> {
+        self.subtree.nodes.iter().map(|(key, node)| NodeCtx {
+            node,
             path: self.path,
             key,
             subtree_ctx: self.clone(),

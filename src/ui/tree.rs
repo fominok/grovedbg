@@ -1,5 +1,7 @@
 //! Tree structure UI module
 
+use std::borrow::Borrow;
+
 use eframe::{
     egui::{self, Id},
     emath::TSTransform,
@@ -88,13 +90,13 @@ impl<'u, 't> TreeDrawer<'u, 't> {
 
     fn draw_subtree_part<'a>(&mut self, mut coords: Pos2, node_ctx: NodeCtx<'a>) {
         let subtree_ctx = node_ctx.subtree_ctx();
-        let mut current_level_nodes: Vec<(Option<KeySlice>, Option<KeySlice>)> = Vec::new();
-        let mut next_level_nodes: Vec<(Option<KeySlice>, Option<KeySlice>)> = Vec::new();
+        let mut current_level_nodes: Vec<Option<(Option<KeySlice>, KeySlice)>> = Vec::new();
+        let mut next_level_nodes: Vec<Option<(Option<KeySlice>, KeySlice)>> = Vec::new();
         let mut level: u32 = 0;
         let levels = node_ctx.subtree().levels();
         let leafs = node_ctx.subtree().leafs();
 
-        current_level_nodes.push((None, Some(node_ctx.key())));
+        current_level_nodes.push(Some((None, node_ctx.key())));
 
         let max_width = node_ctx.subtree().width();
         let x_base = coords.x - max_width / 2.;
@@ -107,8 +109,11 @@ impl<'u, 't> TreeDrawer<'u, 't> {
                 coords.x += 2u32.pow(levels - level - 1) as f32 * unit;
             }
 
-            for (parent_key, node_key) in current_level_nodes.drain(..) {
-                if let Some(cur_node_ctx) = node_key.map(|k| subtree_ctx.get_node(&k)).flatten() {
+            for item in current_level_nodes.drain(..) {
+                if let Some((parent_key, cur_node_ctx)) = item
+                    .map(|(p, k)| subtree_ctx.get_node(&k).map(|ctx| (p, ctx)))
+                    .flatten()
+                {
                     let parent_out_coords = parent_key
                         .map(|k| subtree_ctx.subtree().get_node_output(&k))
                         .flatten();
@@ -124,13 +129,40 @@ impl<'u, 't> TreeDrawer<'u, 't> {
                         ));
                     }
 
-                    next_level_nodes.push((Some(key), node.left_child.as_deref()));
-                    next_level_nodes.push((Some(key), node.right_child.as_deref()));
+                    next_level_nodes.push(
+                        cur_node_ctx
+                            .node()
+                            .ui_state
+                            .borrow()
+                            .show_left
+                            .then_some(
+                                node.left_child
+                                    .as_deref()
+                                    .map(|child_key| (Some(key), child_key)),
+                            )
+                            .flatten(),
+                    );
+
+                    next_level_nodes.push(
+                        cur_node_ctx
+                            .node()
+                            .ui_state
+                            .borrow()
+                            .show_right
+                            .then_some(
+                                node.right_child
+                                    .as_deref()
+                                    .map(|child_key| (Some(key), child_key)),
+                            )
+                            .flatten(),
+                    );
+                } else {
+                    next_level_nodes.push(None);
+                    next_level_nodes.push(None);
                 }
                 coords.x += 2u32.pow(levels - level) as f32 * unit;
             }
-
-            if next_level_nodes.is_empty() {
+            if next_level_nodes.iter().all(Option::is_none) {
                 break;
             }
 
@@ -225,16 +257,15 @@ impl<'u, 't> TreeDrawer<'u, 't> {
                             |ui| ui.separator(),
                         );
 
-                        for (key, node) in subtree
-                            .nodes
-                            .iter()
+                        for node_ctx in subtree_ctx
+                            .iter_nodes()
                             .skip(subtree.page_idx() * KV_PER_PAGE)
                             .take(KV_PER_PAGE)
                         {
                             if let Element::Reference {
                                 path: ref_path,
                                 key: ref_key,
-                            } = &node.element
+                            } = &node_ctx.node().element
                             {
                                 if subtree_ctx.path() != ref_path {
                                     self.references.push((
@@ -245,33 +276,38 @@ impl<'u, 't> TreeDrawer<'u, 't> {
                                 }
                             }
 
-                            let color = element_to_color(&node.element);
+                            let color = element_to_color(&node_ctx.node().element);
 
                             ui.horizontal(|key_line| {
-                                if matches!(node.element, Element::Subtree { .. }) {
-                                    let prev_visibility = subtree_ctx.is_child_visible(key);
+                                if matches!(
+                                    node_ctx.node().element,
+                                    Element::Subtree { .. } | Element::Sumtree { .. }
+                                ) {
+                                    let prev_visibility =
+                                        subtree_ctx.is_child_visible(node_ctx.key());
                                     let mut visibility = prev_visibility;
                                     key_line.checkbox(&mut visibility, "");
                                     if prev_visibility != visibility {
-                                        subtree_ctx.set_child_visibility(key, visibility);
+                                        subtree_ctx
+                                            .set_child_visibility(node_ctx.key(), visibility);
                                     }
                                 }
                                 binary_label_colored(
                                     key_line,
-                                    key,
-                                    &mut node.ui_state.borrow_mut().key_display_variant,
+                                    node_ctx.key(),
+                                    &mut node_ctx.node().ui_state.borrow_mut().key_display_variant,
                                     color,
                                 );
                             });
 
                             if matches!(
-                                node.element,
+                                node_ctx.node().element,
                                 Element::Item { .. }
                                     | Element::SumItem { .. }
                                     | Element::Sumtree { .. }
                                     | Element::Reference { .. }
                             ) {
-                                draw_element(ui, node);
+                                draw_element(ui, node_ctx);
                             }
 
                             ui.allocate_ui(
